@@ -1,0 +1,60 @@
+.
+├── microburst-detection
+│   ├── config
+│   ├── data
+│   │   ├── samples
+│   │   │   ├── lidar_sample.json
+│   │   │   └── radar_sample.json
+│   │   └── test_data
+│   ├── deployment
+│   │   ├── docker
+│   │   ├── kubernetes
+│   │   └── terraform
+│   ├── docs
+│   │   ├── api
+│   │   ├── architecture
+│   │   ├── examples
+│   │   └── guides
+│   ├── logs
+│   ├── output
+│   ├── scripts
+│   │   ├── data_generation
+│   │   ├── deployment
+│   │   └── verify_setup.sh
+│   ├── src
+│   │   └── microburst_detection
+│   │       ├── api
+│   │       ├── cli
+│   │       ├── core
+│   │       ├── fusion
+│   │       ├── sensors
+│   │       ├── utils
+│   │       └── __init__.py
+│   ├── tests
+│   │   ├── api
+│   │   │   └── __init__.py
+│   │   ├── core
+│   │   │   └── __init__.py
+│   │   ├── fixtures
+│   │   ├── fusion
+│   │   │   └── __init__.py
+│   │   ├── sensors
+│   │   │   └── __init__.py
+│   │   └── __init__.py
+│   ├── web_interface
+│   │   └── assets
+│   │       ├── css
+│   │       ├── img
+│   │       └── js
+│   ├── Dockerfile
+│   ├── Makefile
+│   ├── PROJECT_STRUCTURE.txt
+│   ├── README.md
+│   └── docker-compose.yml
+├── LICENSE
+├── README.md
+├── STRUCTURE_REPORT_20251123_220226.txt
+├── setup_v2.zsh
+└── verify_structure.zsh
+
+39 directories, 19 files

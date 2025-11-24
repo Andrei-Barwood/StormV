@@ -1,0 +1,68 @@
+microburst-detection/
+├── src/
+│   └── microburst_detection/
+│       ├── __init__.py
+│       ├── core/                    # Algoritmos de detección
+│       │   ├── __init__.py
+│       │   ├── detector.py
+│       │   ├── algorithms.py
+│       │   └── models.py
+│       ├── sensors/                 # Adaptadores de sensores
+│       │   ├── __init__.py
+│       │   ├── lidar.py
+│       │   ├── doppler_radar.py
+│       │   └── anemometer.py
+│       ├── fusion/                  # Fusión multi-sensor
+│       │   ├── __init__.py
+│       │   ├── kalman_filter.py
+│       │   └── data_fusion.py
+│       ├── api/                     # FastAPI server
+│       │   ├── __init__.py
+│       │   ├── server.py
+│       │   ├── routes.py
+│       │   └── schemas.py
+│       ├── utils/                   # Utilidades
+│       │   ├── __init__.py
+│       │   ├── logger.py
+│       │   └── config.py
+│       └── cli/                     # Command-line interface
+│           ├── __init__.py
+│           └── main.py
+├── tests/                           # Test suite
+│   ├── __init__.py
+│   ├── core/
+│   ├── sensors/
+│   ├── fusion/
+│   ├── api/
+│   └── fixtures/
+├── web_interface/                   # Dashboard web
+│   ├── index.html
+│   ├── assets/
+│   │   ├── js/
+│   │   ├── css/
+│   │   └── img/
+├── docs/                            # Documentación
+│   ├── api/
+│   ├── guides/
+│   ├── examples/
+│   └── architecture/
+├── deployment/                      # Deployment configs
+│   ├── docker/
+│   ├── kubernetes/
+│   └── terraform/
+├── data/                            # Datos de muestra
+│   ├── samples/
+│   └── test_data/
+├── config/                          # Configuraciones
+├── scripts/                         # Scripts auxiliares
+│   ├── data_generation/
+│   └── deployment/
+├── logs/                            # Logs del sistema
+├── output/                          # Salidas generadas
+├── pyproject.toml                   # Configuración del proyecto
+├── Dockerfile                       # Docker image
+├── docker-compose.yml               # Multi-container setup
+├── Makefile                         # Comandos útiles
+├── .gitignore                       # Git ignore rules
+├── .env.example                     # Variables de entorno
+└── README.md                        # Documentación principal
