@@ -1,0 +1,78 @@
+.
+├── config
+├── data
+│   ├── samples
+│   │   ├── lidar_sample.json
+│   │   └── radar_sample.json
+│   └── test_data
+├── deployment
+│   ├── docker
+│   ├── kubernetes
+│   └── terraform
+├── docs
+│   ├── api
+│   ├── architecture
+│   ├── examples
+│   └── guides
+├── logs
+├── output
+├── scripts
+│   ├── data_generation
+│   ├── deployment
+│   └── verify_setup.sh
+├── src
+│   └── microburst_detection
+│       ├── api
+│       │   ├── __init__.py
+│       │   ├── routes.py
+│       │   ├── schemas.py
+│       │   └── server.py
+│       ├── cli
+│       │   ├── __init__.py
+│       │   └── main.py
+│       ├── core
+│       │   ├── __init__.py
+│       │   ├── algorithms.py
+│       │   ├── detector.py
+│       │   └── models.py
+│       ├── fusion
+│       │   ├── __init__.py
+│       │   ├── data_fusion.py
+│       │   └── kalman_filter.py
+│       ├── sensors
+│       │   ├── __init__.py
+│       │   ├── anemometer.py
+│       │   ├── doppler_radar.py
+│       │   └── lidar.py
+│       ├── utils
+│       │   ├── __init__.py
+│       │   ├── config.py
+│       │   └── logger.py
+│       └── __init__.py
+├── tests
+│   ├── api
+│   │   └── __init__.py
+│   ├── core
+│   │   └── __init__.py
+│   ├── fixtures
+│   ├── fusion
+│   │   └── __init__.py
+│   ├── sensors
+│   │   └── __init__.py
+│   └── __init__.py
+├── web_interface
+│   └── assets
+│       ├── css
+│       ├── img
+│       └── js
+├── Dockerfile
+├── Makefile
+├── PROJECT_STRUCTURE.txt
+├── README.md
+├── STRUCTURE_REPORT_20251123_223636.txt
+├── STRUCTURE_REPORT_20251123_224150.txt
+├── docker-compose.yml
+├── source_0_4.zsh
+└── verify_structure.zsh
+
+38 directories, 38 files
