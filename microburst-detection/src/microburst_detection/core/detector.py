@@ -176,6 +176,81 @@ class MicroburstDetector:
             logger.error(f"Error processing radar data: {e}")
             raise
     
+    async def process_anemometer(self, data: AnemometerData) -> Optional[MicroburstDetection]:
+        """
+        Process anemometer data and detect microbursts.
+        
+        Anemometers provide surface wind data which can indicate microburst
+        outflows at ground level.
+        
+        Args:
+            data: Anemometer measurement data
+            
+        Returns:
+            Detection result or None if no microburst detected
+        """
+        try:
+            import numpy as np
+            
+            # Anemometer detects microbursts through sudden wind speed changes
+            # and pressure drops. High wind speeds (>20 m/s) with rapid changes
+            # can indicate microburst outflow
+            
+            # Check for significant wind speed (potential microburst indicator)
+            wind_speed_threshold = 20.0  # m/s
+            if data.wind_speed < wind_speed_threshold:
+                return None
+            
+            # Estimate wind shear from wind speed (surface level indicator)
+            # Higher wind speeds at surface can indicate strong downdraft
+            estimated_wind_shear = (data.wind_speed - 10.0) * 0.4  # Rough conversion
+            
+            # Check pressure drop (another microburst indicator)
+            # Normal pressure ~1013 hPa, significant drops indicate downdraft
+            pressure_drop = 1013.0 - data.pressure if data.pressure < 1013.0 else 0
+            
+            # Combine indicators for confidence
+            confidence = min(
+                0.3 + (data.wind_speed / 50.0) + (pressure_drop / 20.0),
+                0.85  # Anemometer alone has lower confidence than LIDAR/radar
+            )
+            
+            # Only create detection if indicators are strong enough
+            if estimated_wind_shear < 3.0 and pressure_drop < 5.0:
+                return None
+            
+            # Create detection
+            detection = MicroburstDetection(
+                event_id=f"evt_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:6]}",
+                timestamp=data.timestamp,
+                latitude=data.latitude,
+                longitude=data.longitude,
+                altitude=data.altitude,
+                severity=self._classify_severity(estimated_wind_shear, -data.wind_speed),
+                detection_method=DetectionMethod.ANEMOMETER,
+                max_wind_shear=estimated_wind_shear,
+                vertical_velocity=-data.wind_speed * 0.6,  # Estimate from surface wind
+                confidence=confidence,
+                radius=2000.0,  # Surface measurements have wider radius uncertainty
+                duration_seconds=300,
+                alert_level=self._generate_alert_level(estimated_wind_shear),
+                additional_data={
+                    'wind_speed': data.wind_speed,
+                    'wind_direction': data.wind_direction,
+                    'pressure_drop': pressure_drop,
+                    'temperature': data.temperature
+                }
+            )
+            
+            self.detection_history.append(detection)
+            logger.info(f"Anemometer detection: {detection.event_id}, severity={detection.severity}")
+            
+            return detection
+        
+        except Exception as e:
+            logger.error(f"Error processing anemometer data: {e}")
+            raise
+    
     async def get_recent_detections(
         self,
         hours: int = 24,

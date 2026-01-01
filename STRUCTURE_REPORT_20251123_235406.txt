@@ -1,0 +1,85 @@
+.
+├── microburst-detection
+│   ├── config
+│   ├── data
+│   │   ├── samples
+│   │   │   ├── lidar_sample.json
+│   │   │   └── radar_sample.json
+│   │   └── test_data
+│   ├── deployment
+│   │   ├── docker
+│   │   ├── kubernetes
+│   │   └── terraform
+│   ├── docs
+│   │   ├── api
+│   │   ├── architecture
+│   │   ├── examples
+│   │   └── guides
+│   ├── logs
+│   ├── output
+│   ├── scripts
+│   │   ├── data_generation
+│   │   ├── deployment
+│   │   └── verify_setup.sh
+│   ├── src
+│   │   ├── amarr_stormomon.egg-info
+│   │   │   ├── PKG-INFO
+│   │   │   ├── SOURCES.txt
+│   │   │   ├── dependency_links.txt
+│   │   │   ├── entry_points.txt
+│   │   │   ├── requires.txt
+│   │   │   └── top_level.txt
+│   │   └── microburst_detection
+│   │       ├── api
+│   │       ├── cli
+│   │       ├── core
+│   │       ├── fusion
+│   │       ├── sensors
+│   │       ├── utils
+│   │       └── __init__.py
+│   ├── tests
+│   │   ├── api
+│   │   │   └── __init__.py
+│   │   ├── core
+│   │   │   └── __init__.py
+│   │   ├── fixtures
+│   │   ├── fusion
+│   │   │   └── __init__.py
+│   │   ├── sensors
+│   │   │   └── __init__.py
+│   │   └── __init__.py
+│   ├── web_interface
+│   │   ├── app.js
+│   │   ├── index.html
+│   │   ├── microburst_algorithms.py
+│   │   ├── microburst_models.py
+│   │   └── style.css
+│   ├── Dockerfile
+│   ├── Makefile
+│   ├── PROJECT_STRUCTURE.txt
+│   ├── README.md
+│   ├── STRUCTURE_REPORT_20251123_223636.txt
+│   ├── STRUCTURE_REPORT_20251123_224150.txt
+│   ├── docker-compose.yml
+│   ├── installer.zsh
+│   ├── pyproject.toml
+│   ├── setup_python311.zsh
+│   ├── setup_python311_fixed.zsh
+│   ├── setup_python311_fixed_log.zsh
+│   ├── setup_python311_install_20251123_232416.log
+│   ├── source_0_4.zsh
+│   ├── source_0_5.zsh
+│   └── verify_structure.zsh
+├── LICENSE
+├── README.md
+├── STRUCTURE_REPORT_20251123_220226.txt
+├── STRUCTURE_REPORT_20251123_223111.txt
+├── STRUCTURE_REPORT_20251123_235406.txt
+├── fix_project.zsh
+├── fix_project2.zsh
+├── fix_project_final.zsh
+├── mv_sources.zsh
+├── setup_v2.zsh
+└── verify_structure.zsh
+
+36 directories, 47 files

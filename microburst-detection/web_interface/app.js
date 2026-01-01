@@ -1,7 +1,59 @@
+
+
+// ========================================
+// AMARR-STORMOMON DASHBOARD - app.js
+// Microburst Detection System Interface
+// With Continental Filtering Support
+// ========================================
+
+
+const AIRPORTS_WORLDWIDE = [
+  { id:'bhx', name:'Birmingham', continent:'Europe', lat:52.453, lon:-1.748, country:'UK' },
+  { id:'gru', name:'Sao Paulo', continent:'America', lat:-23.435, lon:-46.473, country:'Brazil' },
+  { id:'lax', name:'Los Angeles', continent:'America', lat:33.9416, lon:-118.4085, country:'USA' },
+  { id:'nrt', name:'Tokyo Narita', continent:'Asia', lat:35.772, lon:140.392, country:'Japan' },
+  { id:'jnb', name:'Johannesburg', continent:'Africa', lat:-26.133, lon:28.242, country:'South Africa' },
+  { id:'syd', name:'Sydney', continent:'Oceania', lat:-33.9399, lon:151.1753, country:'Australia' },
+  { id:'tnr', name:'Antananarivo', continent:'Africa', lat:-18.7969, lon:47.4788, country:'Madagascar' },
+  { id:'mcm', name:'McMurdo Station', continent:'Antarctica', lat:-77.8419, lon:166.6863, country:'Antarctica' }
+];
+
+
+// Coordenadas y zoom recomendados por continente
+const CONTINENT_VIEWS = {
+  America: { lat: 20, lon: -80, zoom: 3 },    // Centro América
+  Europe: { lat: 54, lon: 15, zoom: 4 },      // Centro Europa
+  Asia: { lat: 40, lon: 100, zoom: 3 },       // Centro Asia
+  Africa: { lat: 1, lon: 21, zoom: 3 },       // Centro África
+  Oceania: { lat: -25, lon: 134, zoom: 4 },   // Centro Australia
+  Antarctica: { lat: -78, lon: 0, zoom: 3 },  // Centro Antártida
+  all: { lat: 20, lon: 0, zoom: 2 }           // Vista global
+};
+
+function flyToContinent(continent) {
+  const view = CONTINENT_VIEWS[continent] || CONTINENT_VIEWS["all"];
+  if (state.map) {
+    state.map.flyTo([view.lat, view.lon], view.zoom, { animate: true, duration: 1.2 });
+  }
+}
+
+
+// Helper para asignar continente según lat/lon (aproximado)
+function getContinentByCoords(lat, lon) {
+  if (lat <= -60) return "Antarctica";
+  if (lat >= -55 && lat <= 90 && lon >= -170 && lon <= -30) return "America";
+  if (lat >= 35 && lat <= 72 && lon >= -10 && lon <= 40) return "Europe";
+  if (lat >= 10 && lat <= 80 && lon >= 40 && lon <= 180) return "Asia";
+  if (lat >= -35 && lat <= 37 && lon >= -20 && lon <= 55) return "Africa";
+  if (lat >= -50 && lat <= 15 && lon >= 110 && lon <= 180) return "Oceania";
+  return "Unknown";
+}
+
 // Application State
 const state = {
   currentView: 'monitoring',
   currentSensorTab: 'lidar',
+  selectedContinent: 'all',  // Continental filter
   detections: [],
   sensorData: {
     lidar: {
@@ -57,6 +109,17 @@ const SEVERITY_COLORS = {
 
 const CHART_COLORS = ['#1FB8CD', '#FFC185', '#B4413C', '#ECEBD5', '#5D878F'];
 
+// Filter detections by selected continent
+function getFilteredDetections() {
+  if (!state.selectedContinent || state.selectedContinent === 'all') {
+    return state.detections;
+  }
+  return state.detections.filter(d => (d.continent || 'Unknown') === state.selectedContinent);
+}
+
+
+
+
 // Initialize Application
 function initApp() {
   console.log('Initializing Microburst Detection Dashboard...');
@@ -71,6 +134,7 @@ function initApp() {
   initializeSensorTabs();
   initializeSettings();
   initializeHistoryFilters();
+  initializeContinentFilter();  // NEW: Continental filter
   
   // Start real-time updates
   startRealTimeUpdates();
@@ -80,29 +144,52 @@ function initApp() {
   console.log('Dashboard initialized successfully');
 }
 
+// Initialize Continental Filter
+function initializeContinentFilter() {
+  const continentFilter = document.getElementById('continentFilter');
+  if (continentFilter) {
+    continentFilter.addEventListener('change', (e) => {
+  state.selectedContinent = e.target.value;
+  console.log(`Continental filter changed to: ${state.selectedContinent}`);
+  flyToContinent(state.selectedContinent);                // ← NEW!
+  updateMap();
+  updateActiveAlerts();
+});
+
+  }
+}
+
 // Initialize Historical Data
 function initializeHistoricalData() {
   const now = Date.now();
   
   // Generate 20 historical detections
   for (let i = 0; i < 20; i++) {
-    const timestamp = now - (Math.random() * 24 * 60 * 60 * 1000);
-    const severities = ['LOW', 'MODERATE', 'SEVERE', 'EXTREME'];
-    const methods = ['LIDAR', 'DOPPLER_RADAR', 'ANEMOMETER', 'FUSION'];
-    
-    state.detections.push({
-      event_id: `evt_${new Date(timestamp).toISOString().split('T')[0].replace(/-/g, '')}_${String(i).padStart(3, '0')}`,
-      timestamp: new Date(timestamp).toISOString(),
-      latitude: AIRPORT.latitude + (Math.random() - 0.5) * 0.05,
-      longitude: AIRPORT.longitude + (Math.random() - 0.5) * 0.05,
-      altitude: 500 + Math.random() * 2000,
-      severity: severities[Math.floor(Math.random() * severities.length)],
-      confidence: 0.7 + Math.random() * 0.3,
-      max_wind_shear: 3 + Math.random() * 12,
-      vertical_velocity: -3 - Math.random() * 8,
-      detection_method: methods[Math.floor(Math.random() * methods.length)],
-      duration: 30 + Math.random() * 120
-    });
+  const timestamp = now - (Math.random() * 24 * 60 * 60 * 1000);
+  const severities = ['LOW', 'MODERATE', 'SEVERE', 'EXTREME'];
+  const methods = ['LIDAR', 'DOPPLER_RADAR', 'ANEMOMETER', 'FUSION'];
+  
+  const airport = AIRPORTS_WORLDWIDE[Math.floor(Math.random() * AIRPORTS_WORLDWIDE.length)];
+  const lat = airport.lat + (Math.random() - 0.5) * 0.5;
+  const lon = airport.lon + (Math.random() - 0.5) * 0.5;
+  const continent = airport.continent;
+
+  state.detections.push({
+    event_id: `evt_${new Date(timestamp).toISOString().split('T')[0].replace(/-/g, '')}_${String(i).padStart(3, '0')}`,
+    timestamp: new Date(timestamp).toISOString(),
+    latitude: lat,
+    longitude: lon,
+    altitude: 500 + Math.random() * 2000,
+    continent: continent,
+    severity: severities[Math.floor(Math.random() * severities.length)],
+    confidence: 0.7 + Math.random() * 0.3,
+    max_wind_shear: 3 + Math.random() * 12,
+    vertical_velocity: -3 - Math.random() * 8,
+    detection_method: methods[Math.floor(Math.random() * methods.length)],
+    duration: 30 + Math.random() * 120
+  });
+}
+
   }
   
   // Sort by timestamp
@@ -119,7 +206,6 @@ function initializeHistoricalData() {
 // Navigation
 function initializeNavigation() {
   const navBtns = document.querySelectorAll('.nav-btn');
-  
   navBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const viewName = btn.dataset.view;
@@ -138,8 +224,8 @@ function switchView(viewName) {
   document.querySelectorAll('.view').forEach(view => {
     view.classList.remove('active');
   });
-  
   document.getElementById(`${viewName}View`).classList.add('active');
+  
   state.currentView = viewName;
   
   // Refresh view-specific content
@@ -162,327 +248,207 @@ function initializeMap() {
   // Add airport marker
   const airportIcon = L.divIcon({
     className: 'airport-marker',
-    html: `<div style="background: #0047AB; color: white; padding: 8px 12px; border-radius: 6px; font-weight: bold; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${AIRPORT.iata}</div>`,
-    iconSize: [60, 30]
+    html: `<div style="background: #0047AB; color: white; padding: 8px; border-radius: 8px; font-weight: bold; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+      ✈️ ${AIRPORT.iata}
+    </div>`,
+    iconSize: [80, 32],
+    iconAnchor: [40, 16]
   });
   
-  L.marker([AIRPORT.latitude, AIRPORT.longitude], { icon: airportIcon })
-    .bindPopup(`<strong>${AIRPORT.name}</strong><br>IATA: ${AIRPORT.iata}`)
-    .addTo(state.map);
+  L.marker([AIRPORT.latitude, AIRPORT.longitude], {icon: airportIcon})
+    .addTo(state.map)
+    .bindPopup(`<strong>${AIRPORT.name}</strong><br>${AIRPORT.country}`);
   
-  // Add sensor locations
-  addSensorMarkers();
-  
-  setTimeout(() => {
-    state.map.invalidateSize();
-  }, 100);
+  // Initial map update
+  updateMap();
 }
 
-function addSensorMarkers() {
-  const sensors = [
-    { name: 'LIDAR', lat: AIRPORT.latitude + 0.01, lng: AIRPORT.longitude - 0.02, color: '#1FB8CD' },
-    { name: 'Radar', lat: AIRPORT.latitude - 0.01, lng: AIRPORT.longitude + 0.015, color: '#FFC185' },
-    { name: 'Anemometer', lat: AIRPORT.latitude + 0.015, lng: AIRPORT.longitude + 0.01, color: '#5D878F' }
-  ];
-  
-  sensors.forEach(sensor => {
-    const sensorIcon = L.divIcon({
-      className: 'sensor-marker',
-      html: `<div style="width: 12px; height: 12px; background: ${sensor.color}; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 8px ${sensor.color};"></div>`,
-      iconSize: [12, 12]
-    });
-    
-    L.marker([sensor.lat, sensor.lng], { icon: sensorIcon })
-      .bindPopup(`<strong>${sensor.name}</strong><br>Estado: Operacional`)
-      .addTo(state.map);
-  });
-}
-
+// Update Map with filtered detections
 function updateMap() {
-  // Remove old detection markers
+  // Clear existing markers
   state.markers.forEach(marker => marker.remove());
   state.markers = [];
   
-  // Add active detections (last 15 minutes)
+  // Get filtered active detections (last 15 minutes)
   const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
-  const activeDetections = state.detections.filter(d => 
+  const activeDetections = getFilteredDetections().filter(d =>
     new Date(d.timestamp).getTime() > fifteenMinutesAgo
   );
   
+  // Add markers for active detections
   activeDetections.forEach(detection => {
     const color = SEVERITY_COLORS[detection.severity];
+    const icon = L.divIcon({
+      className: 'detection-marker',
+      html: `<div style="background: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3); animation: pulse 2s infinite;"></div>`,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
     
-    // Create pulsing circle
-    const circle = L.circle([detection.latitude, detection.longitude], {
-      color: color,
-      fillColor: color,
-      fillOpacity: 0.3,
-      radius: 1000,
-      className: detection.severity === 'EXTREME' || detection.severity === 'SEVERE' ? 'pulse-animation' : ''
-    }).addTo(state.map);
+    const marker = L.marker([detection.latitude, detection.longitude], {icon})
+      .addTo(state.map)
+      .bindPopup(`
+        <div style="min-width: 200px;">
+          <strong style="color: ${color};">${detection.severity} MICROBURST</strong><br>
+          <strong>ID:</strong> ${detection.event_id}<br>
+          <strong>Time:</strong> ${new Date(detection.timestamp).toLocaleTimeString()}<br>
+          <strong>Wind Shear:</strong> ${detection.max_wind_shear.toFixed(1)} m/s<br>
+          <strong>Confidence:</strong> ${(detection.confidence * 100).toFixed(0)}%<br>
+          <strong>Continent:</strong> ${detection.continent || 'Unknown'}
+        </div>
+      `);
     
-    circle.on('click', () => showDetectionModal(detection));
-    
-    circle.bindPopup(`
-      <strong>Detección ${detection.severity}</strong><br>
-      Confianza: ${(detection.confidence * 100).toFixed(0)}%<br>
-      Cizalladura: ${detection.max_wind_shear.toFixed(1)} m/s<br>
-      <button onclick="showDetectionModal(${JSON.stringify(detection).replace(/"/g, '&quot;')})">Ver Detalles</button>
-    `);
-    
-    state.markers.push(circle);
+    state.markers.push(marker);
   });
   
-  // Update alert count
-  document.getElementById('alertCount').textContent = activeDetections.length;
-  
-  // Update critical alert display
-  updateCriticalAlert(activeDetections);
+  // Update active alerts panel
+  updateActiveAlerts();
 }
 
-function updateCriticalAlert(detections) {
-  const criticalAlertDiv = document.getElementById('criticalAlert');
-  
-  const criticalDetections = detections.filter(d => 
-    d.severity === 'EXTREME' || d.severity === 'SEVERE'
+// Update Active Alerts Panel
+function updateActiveAlerts() {
+  const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+  const activeDetections = getFilteredDetections().filter(d =>
+    new Date(d.timestamp).getTime() > fifteenMinutesAgo
   );
   
-  if (criticalDetections.length > 0) {
-    const detection = criticalDetections[0];
-    const timeAgo = Math.floor((Date.now() - new Date(detection.timestamp).getTime()) / 1000);
+  // Update count
+  const alertCount = document.getElementById('alertCount');
+  if (alertCount) {
+    alertCount.textContent = activeDetections.length;
+  }
+  
+  // Update alerts list
+  const alertsList = document.getElementById('alertsList');
+  if (alertsList) {
+    alertsList.innerHTML = '';
     
-    criticalAlertDiv.innerHTML = `
-      <div class="alert-severity" style="color: ${SEVERITY_COLORS[detection.severity]}">
-        🚨 ALERTA ${detection.severity}
-      </div>
-      <div class="alert-details">
-        <div>Cizalladura: ${detection.max_wind_shear.toFixed(1)} m/s</div>
-        <div>Confianza: ${(detection.confidence * 100).toFixed(0)}%</div>
-        <div>Hace ${timeAgo}s</div>
-      </div>
-    `;
-  } else {
-    criticalAlertDiv.innerHTML = '<div style="text-align: center; color: #228B22; padding: 1rem;">✓ Sin alertas críticas</div>';
+    if (activeDetections.length === 0) {
+      alertsList.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: #777;">
+          <p>✅ No active alerts in ${state.selectedContinent === 'all' ? 'all regions' : state.selectedContinent}</p>
+        </div>
+      `;
+    } else {
+      activeDetections.slice(0, 5).forEach(detection => {
+        const alertItem = document.createElement('div');
+        alertItem.className = 'alert-item';
+        alertItem.style.borderLeft = `4px solid ${SEVERITY_COLORS[detection.severity]}`;
+        alertItem.innerHTML = `
+          <div class="alert-header">
+            <span class="alert-severity" style="background: ${SEVERITY_COLORS[detection.severity]};">
+              ${detection.severity}
+            </span>
+            <span class="alert-time">${getTimeAgo(detection.timestamp)}</span>
+          </div>
+          <div class="alert-details">
+            <strong>${detection.event_id}</strong><br>
+            Wind Shear: ${detection.max_wind_shear.toFixed(1)} m/s<br>
+            Location: ${detection.continent || 'Unknown'}
+          </div>
+        `;
+        alertsList.appendChild(alertItem);
+      });
+    }
   }
 }
 
 // Charts Initialization
 function initializeCharts() {
-  // Reflectivity & Velocity Chart
-  const reflectivityCtx = document.getElementById('reflectivityChart').getContext('2d');
-  state.charts.reflectivity = new Chart(reflectivityCtx, {
+  initializeReflectivityChart();
+  initializeVelocityChart();
+  initializeWindShearChart();
+}
+
+function initializeReflectivityChart() {
+  const ctx = document.getElementById('reflectivityChart');
+  if (!ctx) return;
+  
+  state.charts.reflectivity = new Chart(ctx, {
     type: 'line',
     data: {
       labels: state.timeLabels,
-      datasets: [
-        {
-          label: 'Reflectividad (dBZ)',
-          data: state.reflectivityHistory,
-          borderColor: CHART_COLORS[0],
-          backgroundColor: CHART_COLORS[0] + '33',
-          tension: 0.4,
-          yAxisID: 'y'
-        },
-        {
-          label: 'Velocidad Radial (m/s)',
-          data: state.velocityHistory,
-          borderColor: CHART_COLORS[1],
-          backgroundColor: CHART_COLORS[1] + '33',
-          tension: 0.4,
-          yAxisID: 'y1'
-        }
-      ]
+      datasets: [{
+        label: 'Reflectivity (dBZ)',
+        data: state.reflectivityHistory,
+        borderColor: CHART_COLORS[0],
+        backgroundColor: CHART_COLORS[0] + '20',
+        fill: true,
+        tension: 0.4
+      }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          labels: { color: '#F1F5F9' }
-        }
+        legend: { display: false }
       },
       scales: {
-        x: {
-          ticks: { color: '#94A3B8' },
-          grid: { color: 'rgba(148, 163, 184, 0.1)' }
-        },
-        y: {
-          type: 'linear',
-          position: 'left',
-          ticks: { color: '#94A3B8' },
-          grid: { color: 'rgba(148, 163, 184, 0.1)' },
-          title: { display: true, text: 'Reflectividad (dBZ)', color: '#94A3B8' }
-        },
-        y1: {
-          type: 'linear',
-          position: 'right',
-          ticks: { color: '#94A3B8' },
-          grid: { display: false },
-          title: { display: true, text: 'Velocidad (m/s)', color: '#94A3B8' }
-        }
+        y: { beginAtZero: true, max: 80 }
       }
     }
   });
+}
+
+function initializeVelocityChart() {
+  const ctx = document.getElementById('velocityChart');
+  if (!ctx) return;
   
-  // Wind Shear Chart
-  const windShearCtx = document.getElementById('windShearChart').getContext('2d');
-  const altitudes = ['500m', '1000m', '1500m', '2000m', '2500m'];
-  const shearData = [2.5, 5.8, 8.5, 6.2, 3.1];
-  const shearColors = shearData.map(v => v < 3 ? '#228B22' : v < 6 ? '#FF8C00' : '#DC143C');
+  state.charts.velocity = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: state.timeLabels,
+      datasets: [{
+        label: 'Radial Velocity (m/s)',
+        data: state.velocityHistory,
+        borderColor: CHART_COLORS[1],
+        backgroundColor: CHART_COLORS[1] + '20',
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        y: { beginAtZero: false }
+      }
+    }
+  });
+}
+
+function initializeWindShearChart() {
+  const ctx = document.getElementById('windShearChart');
+  if (!ctx) return;
   
-  state.charts.windShear = new Chart(windShearCtx, {
-    type: 'bar',
+  const altitudes = state.sensorData.lidar.altitudes;
+  const velocities = state.sensorData.lidar.vertical_velocities;
+  
+  state.charts.windShear = new Chart(ctx, {
+    type: 'line',
     data: {
       labels: altitudes,
       datasets: [{
-        label: 'Cizalladura (m/s)',
-        data: shearData,
-        backgroundColor: shearColors
+        label: 'Vertical Velocity',
+        data: velocities,
+        borderColor: CHART_COLORS[2],
+        backgroundColor: CHART_COLORS[2] + '20',
+        fill: true,
+        tension: 0.4
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          labels: { color: '#F1F5F9' }
-        }
+        legend: { display: false }
       },
       scales: {
-        x: {
-          ticks: { color: '#94A3B8' },
-          grid: { color: 'rgba(148, 163, 184, 0.1)' }
-        },
-        y: {
-          ticks: { color: '#94A3B8' },
-          grid: { color: 'rgba(148, 163, 184, 0.1)' },
-          title: { display: true, text: 'Cizalladura (m/s)', color: '#94A3B8' }
-        }
-      }
-    }
-  });
-  
-  // LIDAR Velocity Chart
-  const lidarVelCtx = document.getElementById('lidarVelocityChart').getContext('2d');
-  state.charts.lidarVelocity = new Chart(lidarVelCtx, {
-    type: 'line',
-    data: {
-      labels: state.sensorData.lidar.altitudes.map(a => `${a}m`),
-      datasets: [{
-        label: 'Velocidad Vertical (m/s)',
-        data: state.sensorData.lidar.vertical_velocities,
-        borderColor: CHART_COLORS[0],
-        backgroundColor: CHART_COLORS[0] + '33',
-        tension: 0.4,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#F1F5F9' } } },
-      scales: {
-        x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
-        y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } }
-      }
-    }
-  });
-  
-  // LIDAR Backscatter Chart
-  const lidarBackCtx = document.getElementById('lidarBackscatterChart').getContext('2d');
-  state.charts.lidarBackscatter = new Chart(lidarBackCtx, {
-    type: 'bar',
-    data: {
-      labels: state.sensorData.lidar.altitudes.map(a => `${a}m`),
-      datasets: [{
-        label: 'Retrodispersión',
-        data: state.sensorData.lidar.backscatter,
-        backgroundColor: CHART_COLORS[1]
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#F1F5F9' } } },
-      scales: {
-        x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
-        y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } }
-      }
-    }
-  });
-  
-  // Radar Reflectivity Chart
-  const radarRefCtx = document.getElementById('radarReflectivityChart').getContext('2d');
-  state.charts.radarReflectivity = new Chart(radarRefCtx, {
-    type: 'line',
-    data: {
-      labels: Array(20).fill(0).map((_, i) => `-${20-i}s`),
-      datasets: [{
-        label: 'Reflectividad (dBZ)',
-        data: Array(20).fill(0).map(() => 50 + Math.random() * 25),
-        borderColor: CHART_COLORS[2],
-        backgroundColor: CHART_COLORS[2] + '33',
-        tension: 0.4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#F1F5F9' } } },
-      scales: {
-        x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
-        y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } }
-      }
-    }
-  });
-  
-  // Radar Spectrum Chart
-  const radarSpecCtx = document.getElementById('radarSpectrumChart').getContext('2d');
-  state.charts.radarSpectrum = new Chart(radarSpecCtx, {
-    type: 'line',
-    data: {
-      labels: Array(20).fill(0).map((_, i) => `-${20-i}s`),
-      datasets: [{
-        label: 'Ancho Espectral',
-        data: Array(20).fill(0).map(() => 2 + Math.random() * 3),
-        borderColor: CHART_COLORS[3],
-        backgroundColor: CHART_COLORS[3] + '33',
-        tension: 0.4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#F1F5F9' } } },
-      scales: {
-        x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
-        y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } }
-      }
-    }
-  });
-  
-  // Anemometer Wind Chart
-  const anemometerCtx = document.getElementById('anemometerWindChart').getContext('2d');
-  state.charts.anemometerWind = new Chart(anemometerCtx, {
-    type: 'line',
-    data: {
-      labels: Array(20).fill(0).map((_, i) => `-${20-i}s`),
-      datasets: [{
-        label: 'Velocidad del Viento (m/s)',
-        data: Array(20).fill(0).map(() => 10 + Math.random() * 15),
-        borderColor: CHART_COLORS[4],
-        backgroundColor: CHART_COLORS[4] + '33',
-        tension: 0.4,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#F1F5F9' } } },
-      scales: {
-        x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
-        y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } }
+        x: { title: { display: true, text: 'Altitude (m)' } },
+        y: { title: { display: true, text: 'Velocity (m/s)' } }
       }
     }
   });
@@ -490,556 +456,309 @@ function initializeCharts() {
 
 // Sensor Tabs
 function initializeSensorTabs() {
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  
-  tabBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const sensorType = btn.dataset.sensor;
-      
-      // Update tab buttons
-      tabBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      
-      // Update tab content
-      document.querySelectorAll('.sensor-tab').forEach(tab => {
-        tab.classList.remove('active');
-      });
-      document.getElementById(`${sensorType}Tab`).classList.add('active');
-      
-      state.currentSensorTab = sensorType;
+  const sensorTabs = document.querySelectorAll('.sensor-tab');
+  sensorTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const sensorType = tab.dataset.sensor;
+      switchSensorTab(sensorType);
     });
   });
-  
-  // Update sensor stats
-  updateSensorStats();
 }
 
-function updateSensorStats() {
-  // LIDAR stats
-  const lidarVels = state.sensorData.lidar.vertical_velocities;
-  document.getElementById('lidarMinVel').textContent = `${Math.min(...lidarVels).toFixed(1)} m/s`;
-  document.getElementById('lidarMaxVel').textContent = `${Math.max(...lidarVels).toFixed(1)} m/s`;
-  document.getElementById('lidarQuality').textContent = `${(92 + Math.random() * 7).toFixed(0)}%`;
-  document.getElementById('lidarLastUpdate').textContent = new Date().toLocaleTimeString();
+function switchSensorTab(sensorType) {
+  // Update tabs
+  document.querySelectorAll('.sensor-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.sensor === sensorType);
+  });
   
-  // Radar stats
-  document.getElementById('radarReflectivity').textContent = `${state.sensorData.radar.reflectivity.toFixed(1)} dBZ`;
-  document.getElementById('radarVelocity').textContent = `${state.sensorData.radar.radial_velocity.toFixed(1)} m/s`;
-  document.getElementById('radarQuality').textContent = `${(88 + Math.random() * 10).toFixed(0)}%`;
-  document.getElementById('radarLastUpdate').textContent = new Date().toLocaleTimeString();
+  // Update panels
+  document.querySelectorAll('.sensor-data-panel').forEach(panel => {
+    panel.classList.remove('active');
+  });
+  document.getElementById(`${sensorType}Data`).classList.add('active');
   
-  // Anemometer stats
-  document.getElementById('anemometerSpeed').textContent = `${state.sensorData.anemometer.wind_speed.toFixed(1)} m/s`;
-  document.getElementById('anemometerDirection').textContent = `${state.sensorData.anemometer.wind_direction}°`;
-  document.getElementById('anemometerQuality').textContent = `${(95 + Math.random() * 5).toFixed(0)}%`;
-  document.getElementById('anemometerLastUpdate').textContent = new Date().toLocaleTimeString();
-  
-  // Update wind compass
-  const arrow = document.getElementById('compassArrow');
-  if (arrow) {
-    arrow.style.transform = `translate(-50%, -100%) rotate(${state.sensorData.anemometer.wind_direction}deg)`;
-  }
-  
-  // Fusion data
-  document.getElementById('fusionConfidence').querySelector('.confidence-value').textContent = 
-    `${(85 + Math.random() * 12).toFixed(0)}%`;
-  
-  document.getElementById('kalmanX').textContent = (Math.random() * 100).toFixed(2);
-  document.getElementById('kalmanY').textContent = (Math.random() * 100).toFixed(2);
-  document.getElementById('kalmanV').textContent = (5 + Math.random() * 10).toFixed(2);
-  document.getElementById('kalmanA').textContent = (Math.random() * 2).toFixed(2);
+  state.currentSensorTab = sensorType;
+  updateSensorDisplay(sensorType);
 }
+
+function updateSensorDisplay(sensorType) {
+  const data = state.sensorData[sensorType];
+
+  if (sensorType === 'lidar') {
+    const altsEl = document.getElementById('lidarAltitudes');
+    const velsEl = document.getElementById('lidarVelocities');
+    const backEl = document.getElementById('lidarBackscatter');
+    if (altsEl) altsEl.textContent = data.altitudes.join(', ') + ' m';
+    if (velsEl) velsEl.textContent = data.vertical_velocities.map(v => v.toFixed(1)).join(', ') + ' m/s';
+    if (backEl) backEl.textContent = data.backscatter.map(b => b.toFixed(2)).join(', ');
+  } else if (sensorType === 'radar') {
+    const reflEl = document.getElementById('radarReflectivity');
+    const velEl = document.getElementById('radarVelocity');
+    const specEl = document.getElementById('radarSpectrum');
+    if (reflEl) reflEl.textContent = data.reflectivity.toFixed(1) + ' dBZ';
+    if (velEl) velEl.textContent = data.radial_velocity.toFixed(1) + ' m/s';
+    if (specEl) specEl.textContent = data.spectrum_width.toFixed(1) + ' m/s';
+  } else if (sensorType === 'anemometer') {
+    const windEl = document.getElementById('anemometerWind');
+    const dirEl = document.getElementById('anemometerDirection');
+    const tempEl = document.getElementById('anemometerTemp');
+    const presEl = document.getElementById('anemometerPressure');
+    if (windEl) windEl.textContent = data.wind_speed.toFixed(1) + ' m/s';
+    if (dirEl) dirEl.textContent = data.wind_direction + '°';
+    if (tempEl) tempEl.textContent = data.temperature.toFixed(1) + ' °C';
+    if (presEl) presEl.textContent = data.pressure.toFixed(1) + ' hPa';
+  }
+}
+
 
 // Settings
 function initializeSettings() {
-  // Sliders
-  const windShearSlider = document.getElementById('windShearThreshold');
-  const reflectivitySlider = document.getElementById('reflectivityThreshold');
-  const confidenceSlider = document.getElementById('confidenceThreshold');
-  const volumeSlider = document.getElementById('volumeSlider');
+  // Load settings
+  const thresholdInputs = {
+    windShearThreshold: document.getElementById('windShearThreshold'),
+    reflectivityThreshold: document.getElementById('reflectivityThreshold'),
+    confidenceThreshold: document.getElementById('confidenceThreshold')
+  };
   
-  windShearSlider.addEventListener('input', (e) => {
-    document.getElementById('windShearThresholdValue').textContent = e.target.value;
-    state.settings.windShearThreshold = parseFloat(e.target.value);
-  });
-  
-  reflectivitySlider.addEventListener('input', (e) => {
-    document.getElementById('reflectivityThresholdValue').textContent = e.target.value;
-    state.settings.reflectivityThreshold = parseFloat(e.target.value);
-  });
-  
-  confidenceSlider.addEventListener('input', (e) => {
-    document.getElementById('confidenceThresholdValue').textContent = e.target.value;
-    state.settings.confidenceThreshold = parseFloat(e.target.value);
-  });
-  
-  volumeSlider.addEventListener('input', (e) => {
-    document.getElementById('volumeValue').textContent = e.target.value;
-    state.settings.volume = parseFloat(e.target.value);
+  Object.keys(thresholdInputs).forEach(key => {
+    const input = thresholdInputs[key];
+    if (input) {
+      input.value = state.settings[key];
+      input.addEventListener('input', (e) => {
+        state.settings[key] = parseFloat(e.target.value);
+        document.getElementById(`${key}Value`).textContent = e.target.value;
+      });
+    }
   });
   
   // Toggles
-  document.getElementById('showSensors').addEventListener('change', (e) => {
-    state.settings.showSensors = e.target.checked;
+  const toggles = ['showSensors', 'showWindVectors', 'soundAlerts'];
+  toggles.forEach(toggle => {
+    const checkbox = document.getElementById(toggle);
+    if (checkbox) {
+      checkbox.checked = state.settings[toggle];
+      checkbox.addEventListener('change', (e) => {
+        state.settings[toggle] = e.target.checked;
+      });
+    }
   });
   
-  document.getElementById('showWindVectors').addEventListener('change', (e) => {
-    state.settings.showWindVectors = e.target.checked;
-  });
-  
-  document.getElementById('soundAlerts').addEventListener('change', (e) => {
-    state.settings.soundAlerts = e.target.checked;
-  });
-  
-  // Buttons
-  document.getElementById('testConnectionBtn').addEventListener('click', () => {
-    showToast('Conexión exitosa al servidor de API', 'success');
-  });
-  
-  document.getElementById('exportCSV').addEventListener('click', () => {
-    exportToCSV();
-  });
-  
-  document.getElementById('exportJSON').addEventListener('click', () => {
-    exportToJSON();
-  });
-  
-  // Set default dates
-  const today = new Date().toISOString().split('T')[0];
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  document.getElementById('exportStartDate').value = weekAgo;
-  document.getElementById('exportEndDate').value = today;
+  // Volume
+  const volumeSlider = document.getElementById('volumeSlider');
+  if (volumeSlider) {
+    volumeSlider.value = state.settings.volume;
+    volumeSlider.addEventListener('input', (e) => {
+      state.settings.volume = parseInt(e.target.value);
+      document.getElementById('volumeValue').textContent = e.target.value + '%';
+    });
+  }
 }
 
 // History View
 function initializeHistoryFilters() {
-  document.getElementById('severityFilter').addEventListener('change', () => {
-    updateHistoryView();
-  });
+  const severityFilter = document.getElementById('severityFilter');
+  const methodFilter = document.getElementById('methodFilter');
+  
+  if (severityFilter) {
+    severityFilter.addEventListener('change', updateHistoryView);
+  }
+  
+  if (methodFilter) {
+    methodFilter.addEventListener('change', updateHistoryView);
+  }
 }
 
 function updateHistoryView() {
-  const filter = document.getElementById('severityFilter').value;
+  const severityFilter = document.getElementById('severityFilter')?.value;
+  const methodFilter = document.getElementById('methodFilter')?.value;
   
-  let filteredDetections = state.detections;
-  if (filter !== 'all') {
-    filteredDetections = state.detections.filter(d => d.severity === filter);
+  let filtered = getFilteredDetections();
+  
+  if (severityFilter && severityFilter !== 'all') {
+    filtered = filtered.filter(d => d.severity === severityFilter);
   }
   
-  // Update timeline chart
-  updateTimelineChart(filteredDetections);
-  
-  // Update severity distribution chart
-  updateSeverityChart(filteredDetections);
-  
-  // Update table
-  updateDetectionTable(filteredDetections);
-}
-
-function updateTimelineChart(detections) {
-  const last24h = Date.now() - 24 * 60 * 60 * 1000;
-  const recentDetections = detections.filter(d => new Date(d.timestamp).getTime() > last24h);
-  
-  // Group by hour
-  const hourlyData = new Array(24).fill(0);
-  recentDetections.forEach(d => {
-    const hour = 23 - Math.floor((Date.now() - new Date(d.timestamp).getTime()) / (60 * 60 * 1000));
-    if (hour >= 0 && hour < 24) hourlyData[hour]++;
-  });
-  
-  const labels = Array(24).fill(0).map((_, i) => `-${24-i}h`);
-  
-  if (!state.charts.timeline) {
-    const ctx = document.getElementById('timelineChart').getContext('2d');
-    state.charts.timeline = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Detecciones por Hora',
-          data: hourlyData,
-          borderColor: CHART_COLORS[0],
-          backgroundColor: CHART_COLORS[0] + '33',
-          tension: 0.4,
-          fill: true
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: '#F1F5F9' } } },
-        scales: {
-          x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
-          y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' }, beginAtZero: true }
-        }
-      }
-    });
-  } else {
-    state.charts.timeline.data.labels = labels;
-    state.charts.timeline.data.datasets[0].data = hourlyData;
-    state.charts.timeline.update();
+  if (methodFilter && methodFilter !== 'all') {
+    filtered = filtered.filter(d => d.detection_method === methodFilter);
   }
+  
+  displayHistoryTable(filtered);
+  updateHistoryStats(filtered);
 }
 
-function updateSeverityChart(detections) {
-  const severityCounts = {
-    LOW: 0,
-    MODERATE: 0,
-    SEVERE: 0,
-    EXTREME: 0
-  };
+function displayHistoryTable(detections) {
+  const tbody = document.getElementById('historyTableBody');
+  if (!tbody) return;
   
-  detections.forEach(d => {
-    severityCounts[d.severity]++;
-  });
-  
-  if (!state.charts.severity) {
-    const ctx = document.getElementById('severityChart').getContext('2d');
-    state.charts.severity = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: ['Baja', 'Moderada', 'Severa', 'Extrema'],
-        datasets: [{
-          label: 'Número de Detecciones',
-          data: [severityCounts.LOW, severityCounts.MODERATE, severityCounts.SEVERE, severityCounts.EXTREME],
-          backgroundColor: [
-            SEVERITY_COLORS.LOW,
-            SEVERITY_COLORS.MODERATE,
-            SEVERITY_COLORS.SEVERE,
-            SEVERITY_COLORS.EXTREME
-          ]
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: '#F1F5F9' } } },
-        scales: {
-          x: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
-          y: { ticks: { color: '#94A3B8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' }, beginAtZero: true }
-        }
-      }
-    });
-  } else {
-    state.charts.severity.data.datasets[0].data = [
-      severityCounts.LOW,
-      severityCounts.MODERATE,
-      severityCounts.SEVERE,
-      severityCounts.EXTREME
-    ];
-    state.charts.severity.update();
-  }
-}
-
-function updateDetectionTable(detections) {
-  const tbody = document.getElementById('detectionTableBody');
   tbody.innerHTML = '';
   
-  detections.slice(0, 15).forEach(detection => {
+  detections.forEach(detection => {
     const row = document.createElement('tr');
     row.innerHTML = `
       <td>${detection.event_id}</td>
       <td>${new Date(detection.timestamp).toLocaleString()}</td>
-      <td><span class="severity-badge severity-${detection.severity}">${detection.severity}</span></td>
+      <td><span class="severity-badge" style="background: ${SEVERITY_COLORS[detection.severity]};">${detection.severity}</span></td>
+      <td>${detection.max_wind_shear.toFixed(1)}</td>
+      <td>${detection.vertical_velocity.toFixed(1)}</td>
       <td>${(detection.confidence * 100).toFixed(0)}%</td>
-      <td>${detection.duration.toFixed(0)}s</td>
-      <td>${detection.max_wind_shear.toFixed(1)} m/s</td>
-      <td><button class="view-details-btn" onclick="showDetectionModal(${JSON.stringify(detection).replace(/"/g, '&quot;')})">Ver Detalles</button></td>
+      <td>${detection.detection_method}</td>
+      <td>${detection.continent || 'Unknown'}</td>
     `;
     tbody.appendChild(row);
   });
 }
 
-// Modal
-function showDetectionModal(detection) {
-  if (typeof detection === 'string') {
-    detection = JSON.parse(detection.replace(/&quot;/g, '"'));
-  }
+function updateHistoryStats(detections) {
+  const stats = {
+    total: detections.length,
+    bySeverity: { LOW: 0, MODERATE: 0, SEVERE: 0, EXTREME: 0 }
+  };
   
-  const modal = document.getElementById('detectionModal');
-  const modalBody = document.getElementById('modalBody');
+  detections.forEach(d => {
+    stats.bySeverity[d.severity]++;
+  });
   
-  modalBody.innerHTML = `
-    <div class="detail-row">
-      <span class="detail-label">ID de Evento:</span>
-      <span class="detail-value">${detection.event_id}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Timestamp:</span>
-      <span class="detail-value">${new Date(detection.timestamp).toLocaleString()}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Severidad:</span>
-      <span class="severity-badge severity-${detection.severity}">${detection.severity}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Confianza:</span>
-      <span class="detail-value">${(detection.confidence * 100).toFixed(1)}%</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Ubicación:</span>
-      <span class="detail-value">${detection.latitude.toFixed(4)}°N, ${detection.longitude.toFixed(4)}°W</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Altitud:</span>
-      <span class="detail-value">${detection.altitude.toFixed(0)}m</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Cizalladura Máxima:</span>
-      <span class="detail-value">${detection.max_wind_shear.toFixed(1)} m/s</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Velocidad Vertical:</span>
-      <span class="detail-value">${detection.vertical_velocity.toFixed(1)} m/s</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Método de Detección:</span>
-      <span class="detail-value">${detection.detection_method}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Duración:</span>
-      <span class="detail-value">${detection.duration.toFixed(0)}s</span>
-    </div>
-  `;
-  
-  modal.classList.add('active');
-}
-
-// Make showDetectionModal available globally
-window.showDetectionModal = showDetectionModal;
-
-document.getElementById('closeModal').addEventListener('click', () => {
-  document.getElementById('detectionModal').classList.remove('active');
-});
-
-document.getElementById('detectionModal').addEventListener('click', (e) => {
-  if (e.target.id === 'detectionModal') {
-    document.getElementById('detectionModal').classList.remove('active');
-  }
-});
-
-// Toast Notifications
-function showToast(message, type = 'info') {
-  const container = document.getElementById('toastContainer');
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  
-  const color = type === 'success' ? '#228B22' : type === 'error' ? '#DC143C' : '#0047AB';
-  toast.style.borderColor = color;
-  
-  toast.innerHTML = `
-    <div class="toast-header" style="color: ${color}">${type.toUpperCase()}</div>
-    <div class="toast-body">${message}</div>
-  `;
-  
-  container.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.remove();
-  }, 5000);
+  document.getElementById('totalDetections').textContent = stats.total;
+  document.getElementById('lowSeverity').textContent = stats.bySeverity.LOW;
+  document.getElementById('moderateSeverity').textContent = stats.bySeverity.MODERATE;
+  document.getElementById('severeSeverity').textContent = stats.bySeverity.SEVERE;
+  document.getElementById('extremeSeverity').textContent = stats.bySeverity.EXTREME;
 }
 
 // Real-time Updates
 function startRealTimeUpdates() {
   // Update sensor data every 2 seconds
-  setInterval(() => {
-    updateSensorData();
-    updateWeatherMetrics();
-    updateCharts();
-    updateSensorStats();
-  }, 2000);
+  setInterval(updateSensorData, 2000);
   
-  // Generate new detections every 15-30 seconds
-  setInterval(() => {
-    if (Math.random() > 0.5) {
-      generateNewDetection();
-    }
-  }, 20000);
+  // Generate new detection occasionally
+  setInterval(generateNewDetection, 30000);
   
-  // Update map every 5 seconds
-  setInterval(() => {
-    if (state.currentView === 'monitoring') {
-      updateMap();
-    }
-  }, 5000);
+  // Update charts
+  setInterval(updateCharts, 3000);
 }
 
 function updateSensorData() {
-  // Update LIDAR
-  state.sensorData.lidar.vertical_velocities = state.sensorData.lidar.vertical_velocities.map(
-    v => v + (Math.random() - 0.5) * 0.5
-  );
-  state.sensorData.lidar.backscatter = state.sensorData.lidar.backscatter.map(
-    b => Math.max(0, Math.min(1, b + (Math.random() - 0.5) * 0.1))
-  );
+  // Simulate sensor data updates
+  state.sensorData.lidar.vertical_velocities = 
+    state.sensorData.lidar.vertical_velocities.map(v => v + (Math.random() - 0.5) * 0.5);
   
-  // Update Radar
   state.sensorData.radar.reflectivity += (Math.random() - 0.5) * 2;
-  state.sensorData.radar.reflectivity = Math.max(40, Math.min(80, state.sensorData.radar.reflectivity));
   state.sensorData.radar.radial_velocity += (Math.random() - 0.5) * 1;
-  state.sensorData.radar.radial_velocity = Math.max(-15, Math.min(15, state.sensorData.radar.radial_velocity));
   
-  // Update Anemometer
-  state.sensorData.anemometer.wind_speed += (Math.random() - 0.5) * 1;
-  state.sensorData.anemometer.wind_speed = Math.max(0, Math.min(30, state.sensorData.anemometer.wind_speed));
-  state.sensorData.anemometer.wind_direction += (Math.random() - 0.5) * 5;
-  state.sensorData.anemometer.wind_direction = (state.sensorData.anemometer.wind_direction + 360) % 360;
-  state.sensorData.anemometer.temperature += (Math.random() - 0.5) * 0.2;
-  state.sensorData.anemometer.pressure += (Math.random() - 0.5) * 0.5;
-}
-
-function updateWeatherMetrics() {
-  document.getElementById('tempValue').textContent = `${state.sensorData.anemometer.temperature.toFixed(1)}°C`;
-  document.getElementById('pressureValue').textContent = `${state.sensorData.anemometer.pressure.toFixed(1)} hPa`;
-  document.getElementById('windValue').textContent = `${state.sensorData.anemometer.wind_speed.toFixed(1)} m/s`;
-}
-
-function updateCharts() {
-  // Update reflectivity history
-  state.reflectivityHistory.shift();
-  state.reflectivityHistory.push(state.sensorData.radar.reflectivity);
+  state.sensorData.anemometer.wind_speed += (Math.random() - 0.5) * 0.5;
+  state.sensorData.anemometer.wind_direction = 
+    (state.sensorData.anemometer.wind_direction + (Math.random() - 0.5) * 10 + 360) % 360;
   
-  state.velocityHistory.shift();
-  state.velocityHistory.push(state.sensorData.radar.radial_velocity);
-  
-  state.timeLabels.shift();
-  state.timeLabels.push('0s');
-  
-  // Update chart
-  if (state.charts.reflectivity) {
-    state.charts.reflectivity.data.datasets[0].data = [...state.reflectivityHistory];
-    state.charts.reflectivity.data.datasets[1].data = [...state.velocityHistory];
-    state.charts.reflectivity.update('none');
-  }
-  
-  // Update LIDAR charts
-  if (state.charts.lidarVelocity) {
-    state.charts.lidarVelocity.data.datasets[0].data = [...state.sensorData.lidar.vertical_velocities];
-    state.charts.lidarVelocity.update('none');
-  }
-  
-  if (state.charts.lidarBackscatter) {
-    state.charts.lidarBackscatter.data.datasets[0].data = [...state.sensorData.lidar.backscatter];
-    state.charts.lidarBackscatter.update('none');
-  }
-  
-  // Update radar charts
-  if (state.charts.radarReflectivity) {
-    state.charts.radarReflectivity.data.datasets[0].data.shift();
-    state.charts.radarReflectivity.data.datasets[0].data.push(state.sensorData.radar.reflectivity);
-    state.charts.radarReflectivity.update('none');
-  }
-  
-  if (state.charts.radarSpectrum) {
-    state.charts.radarSpectrum.data.datasets[0].data.shift();
-    state.charts.radarSpectrum.data.datasets[0].data.push(2 + Math.random() * 3);
-    state.charts.radarSpectrum.update('none');
-  }
-  
-  // Update anemometer chart
-  if (state.charts.anemometerWind) {
-    state.charts.anemometerWind.data.datasets[0].data.shift();
-    state.charts.anemometerWind.data.datasets[0].data.push(state.sensorData.anemometer.wind_speed);
-    state.charts.anemometerWind.update('none');
-  }
+  updateSensorDisplay(state.currentSensorTab);
 }
 
 function generateNewDetection() {
-  const severities = ['LOW', 'MODERATE', 'SEVERE', 'EXTREME'];
-  const methods = ['LIDAR', 'DOPPLER_RADAR', 'ANEMOMETER', 'FUSION'];
-  const weights = [0.5, 0.3, 0.15, 0.05]; // Probability weights
-  
-  let severity;
-  const rand = Math.random();
-  if (rand < weights[0]) severity = severities[0];
-  else if (rand < weights[0] + weights[1]) severity = severities[1];
-  else if (rand < weights[0] + weights[1] + weights[2]) severity = severities[2];
-  else severity = severities[3];
-  
-  const detection = {
-    event_id: `evt_${new Date().toISOString().split('T')[0].replace(/-/g, '')}_${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
-    timestamp: new Date().toISOString(),
-    latitude: AIRPORT.latitude + (Math.random() - 0.5) * 0.05,
-    longitude: AIRPORT.longitude + (Math.random() - 0.5) * 0.05,
-    altitude: 500 + Math.random() * 2000,
-    severity: severity,
-    confidence: 0.7 + Math.random() * 0.3,
-    max_wind_shear: 3 + Math.random() * 12,
-    vertical_velocity: -3 - Math.random() * 8,
-    detection_method: methods[Math.floor(Math.random() * methods.length)],
-    duration: 30 + Math.random() * 120
-  };
-  
-  state.detections.unshift(detection);
-  
-  // Show toast for critical detections
-  if (severity === 'SEVERE' || severity === 'EXTREME') {
-    showToast(
-      `Nueva detección ${severity}: Cizalladura ${detection.max_wind_shear.toFixed(1)} m/s`,
-      'error'
-    );
-  }
-  
-  // Update map if in monitoring view
-  if (state.currentView === 'monitoring') {
+  // 20% chance to generate new detection
+  if (Math.random() < 0.2) {
+    const airport = AIRPORTS_WORLDWIDE[Math.floor(Math.random() * AIRPORTS_WORLDWIDE.length)];
+const lat = airport.lat + (Math.random() - 0.5) * 0.5;
+const lon = airport.lon + (Math.random() - 0.5) * 0.5;
+const continent = airport.continent;
+
+const newDetection = {
+  event_id: `evt_${new Date().toISOString().split('T')[0].replace(/-/g, '')}_${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
+  timestamp: new Date().toISOString(),
+  latitude: lat,
+  longitude: lon,
+  altitude: 500 + Math.random() * 2000,
+  continent: continent,
+  severity: severities[Math.floor(Math.random() * severities.length)],
+  confidence: 0.7 + Math.random() * 0.3,
+  max_wind_shear: 3 + Math.random() * 12,
+  vertical_velocity: -3 - Math.random() * 8,
+  detection_method: methods[Math.floor(Math.random() * methods.length)],
+  duration: 30 + Math.random() * 120
+};
+
+    
+    state.detections.unshift(newDetection);
+    
+    // Play alert sound if enabled
+    if (state.settings.soundAlerts && newDetection.severity !== 'LOW') {
+      playAlertSound();
+    }
+    
+    // Update UI
     updateMap();
+    updateHistoryView();
+    
+    console.log('New detection generated:', newDetection.event_id);
   }
 }
 
+function updateCharts() {
+  // Update time series data
+  state.reflectivityHistory.shift();
+  state.reflectivityHistory.push(40 + Math.random() * 35);
+  
+  state.velocityHistory.shift();
+  state.velocityHistory.push(-15 + Math.random() * 30);
+  
+  // Update charts
+  if (state.charts.reflectivity) {
+    state.charts.reflectivity.data.datasets[0].data = state.reflectivityHistory;
+    state.charts.reflectivity.update('none');
+  }
+  
+  if (state.charts.velocity) {
+    state.charts.velocity.data.datasets[0].data = state.velocityHistory;
+    state.charts.velocity.update('none');
+  }
+}
+
+// Utilities
 function updateSystemTime() {
   const now = new Date();
-  document.getElementById('systemTime').textContent = now.toLocaleTimeString('es-ES', {
+  const timeStr = now.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
-    hour12: false
+    second: '2-digit'
   });
+  const dateStr = now.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+  
+  const timeEl = document.getElementById('systemTime');
+  if (timeEl) {
+    timeEl.innerHTML = `${timeStr}<br><small>${dateStr}</small>`;
+  }
 }
 
-// Export Functions
-function exportToCSV() {
-  const startDate = document.getElementById('exportStartDate').value;
-  const endDate = document.getElementById('exportEndDate').value;
+function getTimeAgo(timestamp) {
+  const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
   
-  const csv = [
-    ['ID', 'Timestamp', 'Severidad', 'Confianza', 'Cizalladura', 'Velocidad Vertical', 'Método'].join(','),
-    ...state.detections.map(d => [
-      d.event_id,
-      d.timestamp,
-      d.severity,
-      (d.confidence * 100).toFixed(0),
-      d.max_wind_shear.toFixed(1),
-      d.vertical_velocity.toFixed(1),
-      d.detection_method
-    ].join(','))
-  ].join('\n');
-  
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `detecciones_${startDate}_${endDate}.csv`;
-  a.click();
-  
-  showToast('Datos exportados a CSV exitosamente', 'success');
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function exportToJSON() {
-  const startDate = document.getElementById('exportStartDate').value;
-  const endDate = document.getElementById('exportEndDate').value;
+function playAlertSound() {
+  // Simple beep sound using Web Audio API
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
   
-  const json = JSON.stringify(state.detections, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `detecciones_${startDate}_${endDate}.json`;
-  a.click();
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
   
-  showToast('Datos exportados a JSON exitosamente', 'success');
+  oscillator.frequency.value = 800;
+  oscillator.type = 'sine';
+  
+  gainNode.gain.setValueAtTime(state.settings.volume / 100, audioContext.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+  
+  oscillator.start(audioContext.currentTime);
+  oscillator.stop(audioContext.currentTime + 0.5);
 }
 
-// Initialize on load
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initApp);
 } else {

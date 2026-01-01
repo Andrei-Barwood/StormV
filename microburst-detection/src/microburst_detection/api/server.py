@@ -3,7 +3,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, Union
 
 import structlog
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -16,6 +16,7 @@ from ..utils.config import Settings
 from .schemas import (
     LidarDataSchema,
     RadarDataSchema,
+    AnemometerDataSchema,
     DetectionResponseSchema,
     HealthCheckSchema
 )
@@ -115,8 +116,8 @@ async def health_check() -> HealthCheckSchema:
     )
 
 
-@app.post("/detect/lidar", response_model=DetectionResponseSchema)
-async def analyze_lidar_data(data: LidarDataSchema) -> DetectionResponseSchema:
+@app.post("/detect/lidar", response_model=Union[DetectionResponseSchema, None])
+async def analyze_lidar_data(data: LidarDataSchema) -> Optional[DetectionResponseSchema]:
     """
     Process LIDAR sensor data and detect microbursts.
     
@@ -137,16 +138,18 @@ async def analyze_lidar_data(data: LidarDataSchema) -> DetectionResponseSchema:
                 confidence=result.confidence
             )
             await manager.broadcast({"type": "detection", "data": result.model_dump()})
+            # Convert MicroburstDetection to DetectionResponseSchema
+            return DetectionResponseSchema(**result.model_dump())
         
-        return result
+        return None
     
     except Exception as e:
         logger.error("lidar_processing_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/detect/radar", response_model=DetectionResponseSchema)
-async def analyze_radar_data(data: RadarDataSchema) -> DetectionResponseSchema:
+@app.post("/detect/radar", response_model=Union[DetectionResponseSchema, None])
+async def analyze_radar_data(data: RadarDataSchema) -> Optional[DetectionResponseSchema]:
     """
     Process Doppler radar data and detect microbursts.
     
@@ -166,11 +169,44 @@ async def analyze_radar_data(data: RadarDataSchema) -> DetectionResponseSchema:
                 severity=result.severity.value
             )
             await manager.broadcast({"type": "detection", "data": result.model_dump()})
+            # Convert MicroburstDetection to DetectionResponseSchema
+            return DetectionResponseSchema(**result.model_dump())
         
-        return result
+        return None
     
     except Exception as e:
         logger.error("radar_processing_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/detect/anemometer", response_model=Optional[DetectionResponseSchema])
+async def analyze_anemometer_data(data: AnemometerDataSchema) -> Optional[DetectionResponseSchema]:
+    """
+    Process anemometer data and detect microbursts.
+    
+    Args:
+        data: Anemometer measurement data
+        
+    Returns:
+        Detection result or None if no microburst detected
+    """
+    try:
+        result = await detector.process_anemometer(data)
+        
+        if result:
+            logger.info(
+                "microburst_detected_anemometer",
+                event_id=result.event_id,
+                severity=result.severity.value
+            )
+            await manager.broadcast({"type": "detection", "data": result.model_dump()})
+            # Convert MicroburstDetection to DetectionResponseSchema
+            return DetectionResponseSchema(**result.model_dump())
+        
+        return None
+    
+    except Exception as e:
+        logger.error("anemometer_processing_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -190,7 +226,8 @@ async def get_detections(
         List of detections within the time window
     """
     detections = await detector.get_recent_detections(hours=hours, severity=severity)
-    return detections
+    # Convert MicroburstDetection to DetectionResponseSchema
+    return [DetectionResponseSchema(**det.model_dump()) for det in detections]
 
 
 @app.websocket("/ws/stream")

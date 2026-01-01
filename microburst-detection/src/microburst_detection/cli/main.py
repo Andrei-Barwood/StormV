@@ -50,28 +50,15 @@ def server(
     run_server(host=host, port=port, reload=reload)
 
 
-@app.command()
-async def analyze(
-    lidar_file: Optional[Path] = typer.Option(
-        None, "--lidar", help="LIDAR data JSON file"
-    ),
-    radar_file: Optional[Path] = typer.Option(
-        None, "--radar", help="Radar data JSON file"
-    ),
-    anemometer_file: Optional[Path] = typer.Option(
-        None, "--anemometer", help="Anemometer data JSON file"
-    ),
-    output: Optional[Path] = typer.Option(
-        None, "--output", "-o", help="Output file (JSON)"
-    )
+async def _analyze_async(
+    lidar_file: Optional[Path],
+    radar_file: Optional[Path],
+    anemometer_file: Optional[Path],
+    output: Optional[Path]
 ) -> None:
-    """
-    Analyze sensor data files for microbursts.
-    
-    Example:
-        microburst-detect analyze --lidar data.json --output results.json
-    """
+    """Async implementation of analyze command."""
     from microburst_detection.core.detector import MicroburstDetector
+    from microburst_detection.core.models import LidarData, DopplerRadarData
     
     detector = MicroburstDetector()
     results = []
@@ -84,7 +71,9 @@ async def analyze(
             if lidar_file and lidar_file.exists():
                 console.print(f"[blue]Processing LIDAR: {lidar_file}[/blue]")
                 with open(lidar_file) as f:
-                    lidar_data = json.load(f)
+                    lidar_data_dict = json.load(f)
+                # Convert dict to Pydantic model
+                lidar_data = LidarData(**lidar_data_dict)
                 detection = await detector.process_lidar(lidar_data)
                 if detection:
                     results.append(detection.model_dump())
@@ -94,7 +83,9 @@ async def analyze(
             if radar_file and radar_file.exists():
                 console.print(f"[blue]Processing Radar: {radar_file}[/blue]")
                 with open(radar_file) as f:
-                    radar_data = json.load(f)
+                    radar_data_dict = json.load(f)
+                # Convert dict to Pydantic model
+                radar_data = DopplerRadarData(**radar_data_dict)
                 detection = await detector.process_radar(radar_data)
                 if detection:
                     results.append(detection.model_dump())
@@ -103,6 +94,14 @@ async def analyze(
             # Process Anemometer data
             if anemometer_file and anemometer_file.exists():
                 console.print(f"[blue]Processing Anemometer: {anemometer_file}[/blue]")
+                with open(anemometer_file) as f:
+                    anemometer_data_dict = json.load(f)
+                # Convert dict to Pydantic model
+                from microburst_detection.core.models import AnemometerData
+                anemometer_data = AnemometerData(**anemometer_data_dict)
+                detection = await detector.process_anemometer(anemometer_data)
+                if detection:
+                    results.append(detection.model_dump())
                 progress.advance(task)
         
         if not results:
@@ -133,16 +132,34 @@ async def analyze(
 
 
 @app.command()
-async def stream(
-    api_url: str = typer.Option("http://localhost:8000", "--api", help="API server URL"),
-    duration: int = typer.Option(60, "--duration", help="Stream duration in seconds")
+def analyze(
+    lidar_file: Optional[Path] = typer.Option(
+        None, "--lidar", help="LIDAR data JSON file"
+    ),
+    radar_file: Optional[Path] = typer.Option(
+        None, "--radar", help="Radar data JSON file"
+    ),
+    anemometer_file: Optional[Path] = typer.Option(
+        None, "--anemometer", help="Anemometer data JSON file"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="Output file (JSON)"
+    )
 ) -> None:
     """
-    Stream real-time detections from WebSocket server.
+    Analyze sensor data files for microbursts.
     
     Example:
-        microburst-detect stream --api http://localhost:8000 --duration 120
+        microburst-detect analyze --lidar data.json --output results.json
     """
+    asyncio.run(_analyze_async(lidar_file, radar_file, anemometer_file, output))
+
+
+async def _stream_async(
+    api_url: str,
+    duration: int
+) -> None:
+    """Async implementation of stream command."""
     console.print(
         Panel(
             f"[bold cyan]Connecting to {api_url}[/bold cyan]\n"
@@ -201,6 +218,20 @@ async def stream(
             f"\n[green]Session ended[/green] - "
             f"Duration: {elapsed:.1f}s, Detections: {detection_count}"
         )
+
+
+@app.command()
+def stream(
+    api_url: str = typer.Option("http://localhost:8000", "--api", help="API server URL"),
+    duration: int = typer.Option(60, "--duration", help="Stream duration in seconds")
+) -> None:
+    """
+    Stream real-time detections from WebSocket server.
+    
+    Example:
+        microburst-detect stream --api http://localhost:8000 --duration 120
+    """
+    asyncio.run(_stream_async(api_url, duration))
 
 
 @app.command()
@@ -264,7 +295,7 @@ def config(
 
 
 @app.command()
-async def benchmark() -> None:
+def benchmark() -> None:
     """
     Run performance benchmark of detection algorithms.
     """

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: microburst-config
+  labels:
+    app: microburst-detection
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  SERVER_HOST: "0.0.0.0"
+  SERVER_PORT: "8000"
+  WORKERS: "4"
+  WIND_SHEAR_THRESHOLD_MS: "3.0"
+  REFLECTIVITY_THRESHOLD_DBZ: "40.0"
+  CONFIDENCE_THRESHOLD: "0.75"
+  ALLOWED_ORIGINS: "https://yourdomain.com"
+
