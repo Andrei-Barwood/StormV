@@ -49,6 +49,24 @@ function getContinentByCoords(lat, lon) {
   return "Unknown";
 }
 
+// API Configuration
+const API_CONFIG = {
+  baseURL: 'http://localhost:8000',
+  wsURL: 'ws://localhost:8000',
+  endpoints: {
+    health: '/health',
+    detectLidar: '/detect/lidar',
+    detectRadar: '/detect/radar',
+    detectAnemometer: '/detect/anemometer',
+    detections: '/detections',
+    stats: '/stats',
+    wsStream: '/ws/stream'
+  }
+};
+
+// WebSocket connection
+let wsConnection = null;
+
 // Application State
 const state = {
   currentView: 'monitoring',
@@ -91,14 +109,9 @@ const state = {
 };
 
 // Constants
-const AIRPORT = {
-  id: 'bhx',
-  name: 'Birmingham Airport',
-  latitude: 52.453,
-  longitude: -1.748,
-  country: 'UK',
-  iata: 'BHX'
-};
+// Default airport (optional - can be configured or removed)
+// Set to null to disable airport marker
+const DEFAULT_AIRPORT = null; // or set to: { id: 'bhx', name: 'Birmingham Airport', latitude: 52.453, longitude: -1.748, country: 'UK', iata: 'BHX' }
 
 const SEVERITY_COLORS = {
   LOW: '#228B22',
@@ -136,6 +149,12 @@ function initApp() {
   initializeHistoryFilters();
   initializeContinentFilter();  // NEW: Continental filter
   
+  // Connect to API
+  checkAPIHealth();
+  connectWebSocket();
+  loadDetections();
+  loadStatistics();
+  
   // Start real-time updates
   startRealTimeUpdates();
   updateSystemTime();
@@ -149,13 +168,12 @@ function initializeContinentFilter() {
   const continentFilter = document.getElementById('continentFilter');
   if (continentFilter) {
     continentFilter.addEventListener('change', (e) => {
-  state.selectedContinent = e.target.value;
-  console.log(`Continental filter changed to: ${state.selectedContinent}`);
-  flyToContinent(state.selectedContinent);                // ← NEW!
-  updateMap();
-  updateActiveAlerts();
-});
-
+      state.selectedContinent = e.target.value;
+      console.log(`Continental filter changed to: ${state.selectedContinent}`);
+      flyToContinent(state.selectedContinent);
+      updateMap();
+      updateActiveAlerts();
+    });
   }
 }
 
@@ -165,31 +183,29 @@ function initializeHistoricalData() {
   
   // Generate 20 historical detections
   for (let i = 0; i < 20; i++) {
-  const timestamp = now - (Math.random() * 24 * 60 * 60 * 1000);
-  const severities = ['LOW', 'MODERATE', 'SEVERE', 'EXTREME'];
-  const methods = ['LIDAR', 'DOPPLER_RADAR', 'ANEMOMETER', 'FUSION'];
-  
-  const airport = AIRPORTS_WORLDWIDE[Math.floor(Math.random() * AIRPORTS_WORLDWIDE.length)];
-  const lat = airport.lat + (Math.random() - 0.5) * 0.5;
-  const lon = airport.lon + (Math.random() - 0.5) * 0.5;
-  const continent = airport.continent;
+    const timestamp = now - (Math.random() * 24 * 60 * 60 * 1000);
+    const severities = ['LOW', 'MODERATE', 'SEVERE', 'EXTREME'];
+    const methods = ['LIDAR', 'DOPPLER_RADAR', 'ANEMOMETER', 'FUSION'];
+    
+    const airport = AIRPORTS_WORLDWIDE[Math.floor(Math.random() * AIRPORTS_WORLDWIDE.length)];
+    const lat = airport.lat + (Math.random() - 0.5) * 0.5;
+    const lon = airport.lon + (Math.random() - 0.5) * 0.5;
+    const continent = airport.continent;
 
-  state.detections.push({
-    event_id: `evt_${new Date(timestamp).toISOString().split('T')[0].replace(/-/g, '')}_${String(i).padStart(3, '0')}`,
-    timestamp: new Date(timestamp).toISOString(),
-    latitude: lat,
-    longitude: lon,
-    altitude: 500 + Math.random() * 2000,
-    continent: continent,
-    severity: severities[Math.floor(Math.random() * severities.length)],
-    confidence: 0.7 + Math.random() * 0.3,
-    max_wind_shear: 3 + Math.random() * 12,
-    vertical_velocity: -3 - Math.random() * 8,
-    detection_method: methods[Math.floor(Math.random() * methods.length)],
-    duration: 30 + Math.random() * 120
-  });
-}
-
+    state.detections.push({
+      event_id: `evt_${new Date(timestamp).toISOString().split('T')[0].replace(/-/g, '')}_${String(i).padStart(3, '0')}`,
+      timestamp: new Date(timestamp).toISOString(),
+      latitude: lat,
+      longitude: lon,
+      altitude: 500 + Math.random() * 2000,
+      continent: continent,
+      severity: severities[Math.floor(Math.random() * severities.length)],
+      confidence: 0.7 + Math.random() * 0.3,
+      max_wind_shear: 3 + Math.random() * 12,
+      vertical_velocity: -3 - Math.random() * 8,
+      detection_method: methods[Math.floor(Math.random() * methods.length)],
+      duration: 30 + Math.random() * 120
+    });
   }
   
   // Sort by timestamp
@@ -238,26 +254,45 @@ function switchView(viewName) {
 
 // Map Initialization
 function initializeMap() {
-  state.map = L.map('map').setView([AIRPORT.latitude, AIRPORT.longitude], 11);
+  // Determine initial view: center on detections if available, otherwise global view
+  let initialLat = 20, initialLon = 0, initialZoom = 2; // Global view by default
+  
+  // If there are detections, center on them
+  if (state.detections.length > 0) {
+    const lats = state.detections.map(d => d.latitude);
+    const lons = state.detections.map(d => d.longitude);
+    initialLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+    initialLon = (Math.min(...lons) + Math.max(...lons)) / 2;
+    initialZoom = state.detections.length === 1 ? 10 : 6; // Single detection: zoom in, multiple: regional view
+  } else if (DEFAULT_AIRPORT) {
+    // If no detections but airport is configured, center on airport
+    initialLat = DEFAULT_AIRPORT.latitude;
+    initialLon = DEFAULT_AIRPORT.longitude;
+    initialZoom = 11; // Local view
+  }
+  
+  state.map = L.map('map').setView([initialLat, initialLon], initialZoom);
   
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors',
     maxZoom: 18
   }).addTo(state.map);
   
-  // Add airport marker
-  const airportIcon = L.divIcon({
-    className: 'airport-marker',
-    html: `<div style="background: #0047AB; color: white; padding: 8px; border-radius: 8px; font-weight: bold; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
-      ✈️ ${AIRPORT.iata}
-    </div>`,
-    iconSize: [80, 32],
-    iconAnchor: [40, 16]
-  });
-  
-  L.marker([AIRPORT.latitude, AIRPORT.longitude], {icon: airportIcon})
-    .addTo(state.map)
-    .bindPopup(`<strong>${AIRPORT.name}</strong><br>${AIRPORT.country}`);
+  // Add airport marker only if configured
+  if (DEFAULT_AIRPORT) {
+    const airportIcon = L.divIcon({
+      className: 'airport-marker',
+      html: `<div style="background: #0047AB; color: white; padding: 8px; border-radius: 8px; font-weight: bold; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+        ✈️ ${DEFAULT_AIRPORT.iata || DEFAULT_AIRPORT.id.toUpperCase()}
+      </div>`,
+      iconSize: [80, 32],
+      iconAnchor: [40, 16]
+    });
+    
+    L.marker([DEFAULT_AIRPORT.latitude, DEFAULT_AIRPORT.longitude], {icon: airportIcon})
+      .addTo(state.map)
+      .bindPopup(`<strong>${DEFAULT_AIRPORT.name}</strong><br>${DEFAULT_AIRPORT.country}`);
+  }
   
   // Initial map update
   updateMap();
@@ -265,24 +300,42 @@ function initializeMap() {
 
 // Update Map with filtered detections
 function updateMap() {
-  // Clear existing markers
+  // Clear existing detection markers (keep airport marker if exists)
   state.markers.forEach(marker => marker.remove());
   state.markers = [];
   
-  // Get filtered active detections (last 15 minutes)
+  // Get filtered detections
+  const filtered = getFilteredDetections();
+  
+  // Get active detections (last 15 minutes)
   const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
-  const activeDetections = getFilteredDetections().filter(d =>
+  const activeDetections = filtered.filter(d =>
     new Date(d.timestamp).getTime() > fifteenMinutesAgo
   );
   
-  // Add markers for active detections
-  activeDetections.forEach(detection => {
-    const color = SEVERITY_COLORS[detection.severity];
+  // Determine which detections to show
+  const detectionsToShow = activeDetections.length > 0 ? activeDetections : filtered;
+  
+  // If no detections at all, show appropriate view
+  if (detectionsToShow.length === 0) {
+    if (DEFAULT_AIRPORT) {
+      state.map.setView([DEFAULT_AIRPORT.latitude, DEFAULT_AIRPORT.longitude], 11);
+    } else {
+      state.map.setView([20, 0], 2); // Global view
+    }
+    updateActiveAlerts();
+    return;
+  }
+  
+  // Add markers for detections
+  detectionsToShow.forEach(detection => {
+    const isActive = new Date(detection.timestamp).getTime() > fifteenMinutesAgo;
+    const color = SEVERITY_COLORS[detection.severity] || '#888';
     const icon = L.divIcon({
       className: 'detection-marker',
-      html: `<div style="background: ${color}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3); animation: pulse 2s infinite;"></div>`,
-      iconSize: [20, 20],
-      iconAnchor: [10, 10]
+      html: `<div style="background: ${color}; width: ${isActive ? '20' : '18'}px; height: ${isActive ? '20' : '18'}px; border-radius: 50%; border: ${isActive ? '3' : '2'}px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3); ${isActive ? 'animation: pulse 2s infinite;' : 'opacity: 0.7;'}"></div>`,
+      iconSize: [isActive ? 20 : 18, isActive ? 20 : 18],
+      iconAnchor: [isActive ? 10 : 9, isActive ? 10 : 9]
     });
     
     const marker = L.marker([detection.latitude, detection.longitude], {icon})
@@ -295,11 +348,22 @@ function updateMap() {
           <strong>Wind Shear:</strong> ${detection.max_wind_shear.toFixed(1)} m/s<br>
           <strong>Confidence:</strong> ${(detection.confidence * 100).toFixed(0)}%<br>
           <strong>Continent:</strong> ${detection.continent || 'Unknown'}
+          ${isActive ? '<br><small style="color: red;">⚠️ ACTIVE</small>' : ''}
         </div>
       `);
     
     state.markers.push(marker);
   });
+  
+  // Fit map to show detections with appropriate zoom
+  if (detectionsToShow.length === 1) {
+    // Single detection: zoom to local view
+    state.map.setView([detectionsToShow[0].latitude, detectionsToShow[0].longitude], 10);
+  } else if (detectionsToShow.length > 1) {
+    // Multiple detections: fit bounds
+    const bounds = detectionsToShow.map(d => [d.latitude, d.longitude]);
+    state.map.fitBounds(bounds, { padding: [50, 50], maxZoom: activeDetections.length > 0 ? 10 : 8 });
+  }
   
   // Update active alerts panel
   updateActiveAlerts();
@@ -356,68 +420,204 @@ function updateActiveAlerts() {
 // Charts Initialization
 function initializeCharts() {
   initializeReflectivityChart();
-  initializeVelocityChart();
+  // Note: velocityChart removed - using reflectivityChart for combined display
   initializeWindShearChart();
+  
+  // Initialize sensor-specific charts
+  initializeLidarCharts();
+  initializeRadarCharts();
+  initializeAnemometerCharts();
 }
 
 function initializeReflectivityChart() {
   const ctx = document.getElementById('reflectivityChart');
   if (!ctx) return;
   
+  // Combined chart showing both reflectivity and velocity
   state.charts.reflectivity = new Chart(ctx, {
     type: 'line',
     data: {
       labels: state.timeLabels,
-      datasets: [{
-        label: 'Reflectivity (dBZ)',
-        data: state.reflectivityHistory,
-        borderColor: CHART_COLORS[0],
-        backgroundColor: CHART_COLORS[0] + '20',
-        fill: true,
-        tension: 0.4
-      }]
+      datasets: [
+        {
+          label: 'Reflectivity (dBZ)',
+          data: state.reflectivityHistory,
+          borderColor: CHART_COLORS[0],
+          backgroundColor: CHART_COLORS[0] + '20',
+          fill: true,
+          tension: 0.4,
+          yAxisID: 'y'
+        },
+        {
+          label: 'Radial Velocity (m/s)',
+          data: state.velocityHistory,
+          borderColor: CHART_COLORS[1],
+          backgroundColor: CHART_COLORS[1] + '20',
+          fill: true,
+          tension: 0.4,
+          yAxisID: 'y1'
+        }
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
       plugins: {
-        legend: { display: false }
+        legend: { display: true, position: 'top' }
       },
       scales: {
-        y: { beginAtZero: true, max: 80 }
+        y: {
+          type: 'linear',
+          display: true,
+          position: 'left',
+          beginAtZero: true,
+          max: 80,
+          title: { display: true, text: 'Reflectivity (dBZ)' }
+        },
+        y1: {
+          type: 'linear',
+          display: true,
+          position: 'right',
+          beginAtZero: false,
+          title: { display: true, text: 'Velocity (m/s)' },
+          grid: { drawOnChartArea: false }
+        }
       }
     }
   });
 }
 
-function initializeVelocityChart() {
-  const ctx = document.getElementById('velocityChart');
-  if (!ctx) return;
-  
-  state.charts.velocity = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: state.timeLabels,
-      datasets: [{
-        label: 'Radial Velocity (m/s)',
-        data: state.velocityHistory,
-        borderColor: CHART_COLORS[1],
-        backgroundColor: CHART_COLORS[1] + '20',
-        fill: true,
-        tension: 0.4
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
+// Initialize LIDAR charts
+function initializeLidarCharts() {
+  const velocityCtx = document.getElementById('lidarVelocityChart');
+  if (velocityCtx) {
+    state.charts.lidarVelocity = new Chart(velocityCtx, {
+      type: 'line',
+      data: {
+        labels: state.sensorData.lidar.altitudes,
+        datasets: [{
+          label: 'Vertical Velocity',
+          data: state.sensorData.lidar.vertical_velocities,
+          borderColor: CHART_COLORS[0],
+          backgroundColor: CHART_COLORS[0] + '20',
+          fill: true,
+          tension: 0.4
+        }]
       },
-      scales: {
-        y: { beginAtZero: false }
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: 'Altitude (m)' } },
+          y: { title: { display: true, text: 'Velocity (m/s)' } }
+        }
       }
-    }
-  });
+    });
+  }
+  
+  const backscatterCtx = document.getElementById('lidarBackscatterChart');
+  if (backscatterCtx) {
+    state.charts.lidarBackscatter = new Chart(backscatterCtx, {
+      type: 'line',
+      data: {
+        labels: state.sensorData.lidar.altitudes,
+        datasets: [{
+          label: 'Backscatter',
+          data: state.sensorData.lidar.backscatter,
+          borderColor: CHART_COLORS[1],
+          backgroundColor: CHART_COLORS[1] + '20',
+          fill: true,
+          tension: 0.4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: 'Altitude (m)' } },
+          y: { title: { display: true, text: 'Backscatter' }, min: 0, max: 1 }
+        }
+      }
+    });
+  }
+}
+
+// Initialize Radar charts
+function initializeRadarCharts() {
+  const reflectivityCtx = document.getElementById('radarReflectivityChart');
+  if (reflectivityCtx) {
+    state.charts.radarReflectivity = new Chart(reflectivityCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Current'],
+        datasets: [{
+          label: 'Reflectivity',
+          data: [state.sensorData.radar.reflectivity],
+          backgroundColor: CHART_COLORS[2]
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, max: 80 } }
+      }
+    });
+  }
+  
+  const spectrumCtx = document.getElementById('radarSpectrumChart');
+  if (spectrumCtx) {
+    state.charts.radarSpectrum = new Chart(spectrumCtx, {
+      type: 'line',
+      data: {
+        labels: state.timeLabels.slice(-10),
+        datasets: [{
+          label: 'Spectrum Width',
+          data: Array(10).fill(state.sensorData.radar.spectrum_width),
+          borderColor: CHART_COLORS[3],
+          backgroundColor: CHART_COLORS[3] + '20',
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+}
+
+// Initialize Anemometer charts
+function initializeAnemometerCharts() {
+  const windCtx = document.getElementById('anemometerWindChart');
+  if (windCtx) {
+    state.charts.anemometerWind = new Chart(windCtx, {
+      type: 'line',
+      data: {
+        labels: state.timeLabels.slice(-10),
+        datasets: [{
+          label: 'Wind Speed',
+          data: Array(10).fill(state.sensorData.anemometer.wind_speed),
+          borderColor: CHART_COLORS[4],
+          backgroundColor: CHART_COLORS[4] + '20',
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
 }
 
 function initializeWindShearChart() {
@@ -456,26 +656,29 @@ function initializeWindShearChart() {
 
 // Sensor Tabs
 function initializeSensorTabs() {
-  const sensorTabs = document.querySelectorAll('.sensor-tab');
-  sensorTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const sensorType = tab.dataset.sensor;
+  const sensorTabButtons = document.querySelectorAll('.sensor-tabs .tab-btn');
+  sensorTabButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sensorType = btn.dataset.sensor;
       switchSensorTab(sensorType);
     });
   });
 }
 
 function switchSensorTab(sensorType) {
-  // Update tabs
-  document.querySelectorAll('.sensor-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.sensor === sensorType);
+  // Update tab buttons
+  document.querySelectorAll('.sensor-tabs .tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sensor === sensorType);
   });
   
-  // Update panels
-  document.querySelectorAll('.sensor-data-panel').forEach(panel => {
-    panel.classList.remove('active');
+  // Update tab content panels
+  document.querySelectorAll('.sensor-tab').forEach(tab => {
+    tab.classList.remove('active');
   });
-  document.getElementById(`${sensorType}Data`).classList.add('active');
+  const targetTab = document.getElementById(`${sensorType}Tab`);
+  if (targetTab) {
+    targetTab.classList.add('active');
+  }
   
   state.currentSensorTab = sensorType;
   updateSensorDisplay(sensorType);
@@ -485,28 +688,65 @@ function updateSensorDisplay(sensorType) {
   const data = state.sensorData[sensorType];
 
   if (sensorType === 'lidar') {
-    const altsEl = document.getElementById('lidarAltitudes');
-    const velsEl = document.getElementById('lidarVelocities');
-    const backEl = document.getElementById('lidarBackscatter');
-    if (altsEl) altsEl.textContent = data.altitudes.join(', ') + ' m';
-    if (velsEl) velsEl.textContent = data.vertical_velocities.map(v => v.toFixed(1)).join(', ') + ' m/s';
-    if (backEl) backEl.textContent = data.backscatter.map(b => b.toFixed(2)).join(', ');
+    // Update stats
+    const minVelEl = document.getElementById('lidarMinVel');
+    const maxVelEl = document.getElementById('lidarMaxVel');
+    const qualityEl = document.getElementById('lidarQuality');
+    const lastUpdateEl = document.getElementById('lidarLastUpdate');
+    
+    if (minVelEl) minVelEl.textContent = Math.min(...data.vertical_velocities).toFixed(1) + ' m/s';
+    if (maxVelEl) maxVelEl.textContent = Math.max(...data.vertical_velocities).toFixed(1) + ' m/s';
+    if (qualityEl) qualityEl.textContent = Math.round(data.backscatter.reduce((a, b) => a + b, 0) / data.backscatter.length * 100) + '%';
+    if (lastUpdateEl) lastUpdateEl.textContent = new Date().toLocaleTimeString();
+    
+    // Update charts if they exist
+    if (state.charts.lidarVelocity) {
+      state.charts.lidarVelocity.data.datasets[0].data = data.vertical_velocities;
+      state.charts.lidarVelocity.update('none');
+    }
+    if (state.charts.lidarBackscatter) {
+      state.charts.lidarBackscatter.data.datasets[0].data = data.backscatter;
+      state.charts.lidarBackscatter.update('none');
+    }
   } else if (sensorType === 'radar') {
     const reflEl = document.getElementById('radarReflectivity');
     const velEl = document.getElementById('radarVelocity');
-    const specEl = document.getElementById('radarSpectrum');
+    const qualityEl = document.getElementById('radarQuality');
+    const lastUpdateEl = document.getElementById('radarLastUpdate');
+    
     if (reflEl) reflEl.textContent = data.reflectivity.toFixed(1) + ' dBZ';
     if (velEl) velEl.textContent = data.radial_velocity.toFixed(1) + ' m/s';
-    if (specEl) specEl.textContent = data.spectrum_width.toFixed(1) + ' m/s';
+    if (qualityEl) qualityEl.textContent = '85%'; // Placeholder
+    if (lastUpdateEl) lastUpdateEl.textContent = new Date().toLocaleTimeString();
+    
+    // Update charts if they exist
+    if (state.charts.radarReflectivity) {
+      // Update reflectivity chart
+    }
+    if (state.charts.radarSpectrum) {
+      // Update spectrum chart
+    }
   } else if (sensorType === 'anemometer') {
-    const windEl = document.getElementById('anemometerWind');
+    const speedEl = document.getElementById('anemometerSpeed');
     const dirEl = document.getElementById('anemometerDirection');
-    const tempEl = document.getElementById('anemometerTemp');
-    const presEl = document.getElementById('anemometerPressure');
-    if (windEl) windEl.textContent = data.wind_speed.toFixed(1) + ' m/s';
-    if (dirEl) dirEl.textContent = data.wind_direction + '°';
-    if (tempEl) tempEl.textContent = data.temperature.toFixed(1) + ' °C';
-    if (presEl) presEl.textContent = data.pressure.toFixed(1) + ' hPa';
+    const qualityEl = document.getElementById('anemometerQuality');
+    const lastUpdateEl = document.getElementById('anemometerLastUpdate');
+    
+    if (speedEl) speedEl.textContent = data.wind_speed.toFixed(1) + ' m/s';
+    if (dirEl) dirEl.textContent = data.wind_direction.toFixed(0) + '°';
+    if (qualityEl) qualityEl.textContent = '90%'; // Placeholder
+    if (lastUpdateEl) lastUpdateEl.textContent = new Date().toLocaleTimeString();
+    
+    // Update wind compass
+    const compassArrow = document.getElementById('compassArrow');
+    if (compassArrow) {
+      compassArrow.style.transform = `rotate(${data.wind_direction}deg)`;
+    }
+    
+    // Update wind chart if it exists
+    if (state.charts.anemometerWind) {
+      // Update wind chart
+    }
   }
 }
 
@@ -552,6 +792,21 @@ function initializeSettings() {
       document.getElementById('volumeValue').textContent = e.target.value + '%';
     });
   }
+  
+  // API Endpoint and Connection Test
+  const apiEndpointInput = document.getElementById('apiEndpoint');
+  if (apiEndpointInput) {
+    apiEndpointInput.value = API_CONFIG.baseURL;
+    apiEndpointInput.addEventListener('change', (e) => {
+      API_CONFIG.baseURL = e.target.value;
+      checkAPIHealth();
+    });
+  }
+  
+  const testConnectionBtn = document.getElementById('testConnectionBtn');
+  if (testConnectionBtn) {
+    testConnectionBtn.addEventListener('click', testAPIConnection);
+  }
 }
 
 // History View
@@ -587,7 +842,7 @@ function updateHistoryView() {
 }
 
 function displayHistoryTable(detections) {
-  const tbody = document.getElementById('historyTableBody');
+  const tbody = document.getElementById('detectionTableBody');
   if (!tbody) return;
   
   tbody.innerHTML = '';
@@ -655,25 +910,27 @@ function updateSensorData() {
 function generateNewDetection() {
   // 20% chance to generate new detection
   if (Math.random() < 0.2) {
+    const severities = ['LOW', 'MODERATE', 'SEVERE', 'EXTREME'];
+    const methods = ['LIDAR', 'DOPPLER_RADAR', 'ANEMOMETER', 'FUSION'];
     const airport = AIRPORTS_WORLDWIDE[Math.floor(Math.random() * AIRPORTS_WORLDWIDE.length)];
-const lat = airport.lat + (Math.random() - 0.5) * 0.5;
-const lon = airport.lon + (Math.random() - 0.5) * 0.5;
-const continent = airport.continent;
+    const lat = airport.lat + (Math.random() - 0.5) * 0.5;
+    const lon = airport.lon + (Math.random() - 0.5) * 0.5;
+    const continent = airport.continent;
 
-const newDetection = {
-  event_id: `evt_${new Date().toISOString().split('T')[0].replace(/-/g, '')}_${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
-  timestamp: new Date().toISOString(),
-  latitude: lat,
-  longitude: lon,
-  altitude: 500 + Math.random() * 2000,
-  continent: continent,
-  severity: severities[Math.floor(Math.random() * severities.length)],
-  confidence: 0.7 + Math.random() * 0.3,
-  max_wind_shear: 3 + Math.random() * 12,
-  vertical_velocity: -3 - Math.random() * 8,
-  detection_method: methods[Math.floor(Math.random() * methods.length)],
-  duration: 30 + Math.random() * 120
-};
+    const newDetection = {
+      event_id: `evt_${new Date().toISOString().split('T')[0].replace(/-/g, '')}_${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
+      timestamp: new Date().toISOString(),
+      latitude: lat,
+      longitude: lon,
+      altitude: 500 + Math.random() * 2000,
+      continent: continent,
+      severity: severities[Math.floor(Math.random() * severities.length)],
+      confidence: 0.7 + Math.random() * 0.3,
+      max_wind_shear: 3 + Math.random() * 12,
+      vertical_velocity: -3 - Math.random() * 8,
+      detection_method: methods[Math.floor(Math.random() * methods.length)],
+      duration: 30 + Math.random() * 120
+    };
 
     
     state.detections.unshift(newDetection);
@@ -699,15 +956,21 @@ function updateCharts() {
   state.velocityHistory.shift();
   state.velocityHistory.push(-15 + Math.random() * 30);
   
-  // Update charts
+  // Update reflectivity chart (combined with velocity)
   if (state.charts.reflectivity) {
-    state.charts.reflectivity.data.datasets[0].data = state.reflectivityHistory;
+    if (state.charts.reflectivity.data.datasets[0]) {
+      state.charts.reflectivity.data.datasets[0].data = state.reflectivityHistory;
+    }
+    if (state.charts.reflectivity.data.datasets[1]) {
+      state.charts.reflectivity.data.datasets[1].data = state.velocityHistory;
+    }
     state.charts.reflectivity.update('none');
   }
   
-  if (state.charts.velocity) {
-    state.charts.velocity.data.datasets[0].data = state.velocityHistory;
-    state.charts.velocity.update('none');
+  // Update wind shear chart
+  if (state.charts.windShear) {
+    state.charts.windShear.data.datasets[0].data = state.sensorData.lidar.vertical_velocities;
+    state.charts.windShear.update('none');
   }
 }
 
@@ -757,6 +1020,224 @@ function playAlertSound() {
   
   oscillator.start(audioContext.currentTime);
   oscillator.stop(audioContext.currentTime + 0.5);
+}
+
+// API Connection Functions
+async function checkAPIHealth() {
+  try {
+    const apiEndpoint = document.getElementById('apiEndpoint')?.value || API_CONFIG.baseURL;
+    const response = await fetch(`${apiEndpoint}${API_CONFIG.endpoints.health}`);
+    
+    if (response.ok) {
+      const data = await response.json();
+      state.apiConnected = true;
+      updateConnectionStatus(true);
+      console.log('API Health:', data);
+      return true;
+    } else {
+      state.apiConnected = false;
+      updateConnectionStatus(false);
+      return false;
+    }
+  } catch (error) {
+    console.error('API Health check failed:', error);
+    state.apiConnected = false;
+    updateConnectionStatus(false);
+    return false;
+  }
+}
+
+function updateConnectionStatus(connected) {
+  const statusEl = document.querySelector('.connection-status .status-indicator');
+  const statusText = document.querySelector('.connection-status span:last-child');
+  
+  if (statusEl && statusText) {
+    statusEl.classList.toggle('connected', connected);
+    statusEl.classList.toggle('disconnected', !connected);
+    statusText.textContent = connected ? 'Conectado' : 'Desconectado';
+  }
+  
+  // Update system status
+  const systemStatus = document.getElementById('systemStatus');
+  if (systemStatus) {
+    const statusText = systemStatus.querySelector('.status-text');
+    if (statusText) {
+      statusText.textContent = connected ? 'OPERACIONAL' : 'DESCONECTADO';
+    }
+  }
+}
+
+function connectWebSocket() {
+  try {
+    const apiEndpoint = document.getElementById('apiEndpoint')?.value || API_CONFIG.baseURL;
+    const wsURL = apiEndpoint.replace('http://', 'ws://').replace('https://', 'wss://');
+    const wsPath = `${wsURL}${API_CONFIG.endpoints.wsStream}`;
+    
+    if (wsConnection) {
+      wsConnection.close();
+    }
+    
+    wsConnection = new WebSocket(wsPath);
+    
+    wsConnection.onopen = () => {
+      console.log('WebSocket connected');
+      state.apiConnected = true;
+      updateConnectionStatus(true);
+    };
+    
+    wsConnection.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'detection' && message.data) {
+          handleNewDetection(message.data);
+        }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    };
+    
+    wsConnection.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      state.apiConnected = false;
+      updateConnectionStatus(false);
+    };
+    
+    wsConnection.onclose = () => {
+      console.log('WebSocket disconnected, reconnecting in 5s...');
+      state.apiConnected = false;
+      updateConnectionStatus(false);
+      setTimeout(connectWebSocket, 5000);
+    };
+  } catch (error) {
+    console.error('WebSocket connection failed:', error);
+    // Fallback to simulated data
+  }
+}
+
+function handleNewDetection(detectionData) {
+  // Map API response to internal format
+  const continent = getContinentByCoords(detectionData.latitude, detectionData.longitude);
+  
+  const newDetection = {
+    event_id: detectionData.event_id,
+    timestamp: detectionData.timestamp,
+    latitude: detectionData.latitude,
+    longitude: detectionData.longitude,
+    altitude: detectionData.altitude,
+    continent: continent,
+    severity: detectionData.severity?.toUpperCase() || 'LOW',
+    confidence: detectionData.confidence || 0.5,
+    max_wind_shear: detectionData.max_wind_shear || 0,
+    vertical_velocity: detectionData.vertical_velocity || 0,
+    detection_method: detectionData.detection_method?.toUpperCase() || 'UNKNOWN',
+    duration: detectionData.duration_seconds || 180
+  };
+  
+  state.detections.unshift(newDetection);
+  
+  // Play alert sound if enabled
+  if (state.settings.soundAlerts && newDetection.severity !== 'LOW') {
+    playAlertSound();
+  }
+  
+  // Update UI
+  updateMap();
+  updateActiveAlerts();
+  if (state.currentView === 'history') {
+    updateHistoryView();
+  }
+  
+  console.log('New detection received:', newDetection.event_id);
+}
+
+async function loadDetections() {
+  try {
+    const apiEndpoint = document.getElementById('apiEndpoint')?.value || API_CONFIG.baseURL;
+    const response = await fetch(`${apiEndpoint}${API_CONFIG.endpoints.detections}?hours=24`);
+    
+    if (response.ok) {
+      const detections = await response.json();
+      // Convert API detections to internal format
+      detections.forEach(det => {
+        const continent = getContinentByCoords(det.latitude, det.longitude);
+        state.detections.push({
+          event_id: det.event_id,
+          timestamp: det.timestamp,
+          latitude: det.latitude,
+          longitude: det.longitude,
+          altitude: det.altitude,
+          continent: continent,
+          severity: det.severity?.toUpperCase() || 'LOW',
+          confidence: det.confidence || 0.5,
+          max_wind_shear: det.max_wind_shear || 0,
+          vertical_velocity: det.vertical_velocity || 0,
+          detection_method: det.detection_method?.toUpperCase() || 'UNKNOWN',
+          duration: det.duration_seconds || 180
+        });
+      });
+      
+      // Sort by timestamp
+      state.detections.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      
+      updateMap();
+      if (state.currentView === 'history') {
+        updateHistoryView();
+      }
+    }
+  } catch (error) {
+    console.error('Error loading detections:', error);
+    // Continue with simulated data
+  }
+}
+
+async function loadStatistics() {
+  try {
+    const apiEndpoint = document.getElementById('apiEndpoint')?.value || API_CONFIG.baseURL;
+    const response = await fetch(`${apiEndpoint}${API_CONFIG.endpoints.stats}?days=7`);
+    
+    if (response.ok) {
+      const stats = await response.json();
+      console.log('Statistics loaded:', stats);
+      // Update statistics display if needed
+    }
+  } catch (error) {
+    console.error('Error loading statistics:', error);
+  }
+}
+
+// Test API connection
+function testAPIConnection() {
+  const apiEndpoint = document.getElementById('apiEndpoint')?.value || API_CONFIG.baseURL;
+  API_CONFIG.baseURL = apiEndpoint;
+  checkAPIHealth().then(connected => {
+    if (connected) {
+      showToast('Conexión exitosa', 'success');
+      connectWebSocket();
+      loadDetections();
+    } else {
+      showToast('Error de conexión. Verifica que el servidor esté ejecutándose.', 'error');
+    }
+  });
+}
+
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  
+  const container = document.getElementById('toastContainer');
+  if (container) {
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+      toast.classList.add('show');
+    }, 10);
+    
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
 }
 
 if (document.readyState === 'loading') {
